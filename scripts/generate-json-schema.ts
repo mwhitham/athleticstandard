@@ -19,7 +19,7 @@ const jsonSchema = z.toJSONSchema(AthleticStandardFile, {
 
 const out = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: `https://athleticstandard.dev/schema/${ATHLETIC_STANDARD_VERSION}/athleticstandard.schema.json`,
+  $id: `https://raw.githubusercontent.com/mwhitham/athleticstandard/main/schema/athleticstandard.schema.json`,
   title: "Athletic Standard file",
   ...jsonSchema,
 };
