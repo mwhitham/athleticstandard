@@ -6,12 +6,12 @@ import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { AthleticStandardFile, type AthleticStandardFileT } from "./schema.js";
 
-export const FILE_SUFFIX = ".athleticstandard.json";
+export const FILE_SUFFIX = ".ath.json";
 export const DEFAULT_FILENAME = `athlete${FILE_SUFFIX}`;
 
 /**
  * Resolve which file to operate on: an explicit --file path, or the single
- * *.athleticstandard.json in the current directory. Multiple candidates is an
+ * *.ath.json in the current directory. Multiple candidates is an
  * error we refuse to guess about.
  */
 export function findFile(explicitPath?: string, cwd = process.cwd()): string {

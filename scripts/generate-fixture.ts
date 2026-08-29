@@ -1,5 +1,5 @@
 /**
- * Generates examples/demo-athlete/athlete.athleticstandard.json — a synthetic but realistic
+ * Generates examples/demo-athlete/athlete.ath.json — a synthetic but realistic
  * athlete: ~14 months of daily WHOOP-shaped data, benchmark results across four
  * benchmarks with a plausible improvement curve, and soft signals sprinkled the
  * way a real person actually logs (sporadically, and mostly when things go wrong).
@@ -274,9 +274,9 @@ if (!result.valid) {
 
 const outDir = join(root, "examples", "demo-athlete");
 mkdirSync(outDir, { recursive: true });
-writeFileSync(join(outDir, "athlete.athleticstandard.json"), JSON.stringify(file, null, 2) + "\n");
+writeFileSync(join(outDir, "athlete.ath.json"), JSON.stringify(file, null, 2) + "\n");
 console.log(
-  `wrote examples/demo-athlete/athlete.athleticstandard.json — ` +
+  `wrote examples/demo-athlete/athlete.ath.json — ` +
     `${file.hard_signals.length} hard signals, ${file.soft_signals.length} soft signals, ` +
     `${benchmarkPlan.length} benchmark results`,
 );

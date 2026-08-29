@@ -1,6 +1,6 @@
 # Agent Onboarding
 
-Athletic Standard: an open, local-first file format (`.athleticstandard.json`) for a functional-fitness athlete's training and recovery state, designed for AI agents to reason over, plus a reference agent that proves the format works. Not an app, not a coach, not medical advice.
+Athletic Standard: an open, local-first file format (`.ath.json`) for a functional-fitness athlete's training and recovery state, designed for AI agents to reason over, plus a reference agent that proves the format works. Not an app, not a coach, not medical advice.
 
 ## Where the truth lives
 

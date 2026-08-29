@@ -1,6 +1,6 @@
 # The Athletic Standard Format — Specification v0.1.0
 
-**Status:** draft · **File extension:** `.athleticstandard.json` · **Schema:** [`schema/athleticstandard.schema.json`](schema/athleticstandard.schema.json) (JSON Schema draft 2020-12, generated from the Zod definitions in [`src/schema.ts`](src/schema.ts), which are normative)
+**Status:** draft · **File extension:** `.ath.json` · **Schema:** [`schema/athleticstandard.schema.json`](schema/athleticstandard.schema.json) (JSON Schema draft 2020-12, generated from the Zod definitions in [`src/schema.ts`](src/schema.ts), which are normative)
 
 Athletic Standard is an open, local-first file format for a functional-fitness athlete's training and recovery state over time, designed for AI agents to reason over.
 

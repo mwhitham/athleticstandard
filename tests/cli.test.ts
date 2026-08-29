@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 const CLI = resolve(__dirname, "../src/cli.ts");
 const TSX = resolve(__dirname, "../node_modules/.bin/tsx");
-const FIXTURE = resolve(__dirname, "../examples/demo-athlete/athlete.athleticstandard.json");
+const FIXTURE = resolve(__dirname, "../examples/demo-athlete/athlete.ath.json");
 
 function ath(args: string[], cwd: string): { stdout: string; code: number } {
   try {
@@ -24,7 +24,7 @@ describe("ath init", () => {
     const res = ath(["init", "-y", "--name", "Test", "--birth-year", "1990", "--sex", "male"], dir);
     expect(res.code).toBe(0);
 
-    const file = JSON.parse(readFileSync(join(dir, "athlete.athleticstandard.json"), "utf8"));
+    const file = JSON.parse(readFileSync(join(dir, "athlete.ath.json"), "utf8"));
     expect(file.athleticstandard_version).toBeDefined();
     expect(file.athlete.name).toBe("Test");
     expect(file.benchmarks.map((b: { id: string }) => b.id)).toContain("fran");
@@ -53,7 +53,7 @@ describe("ath check", () => {
     const dir = mkdtempSync(join(tmpdir(), "ath-"));
     const file = JSON.parse(readFileSync(FIXTURE, "utf8"));
     file.hard_signals[0].source = "ghost-device";
-    writeFileSync(join(dir, "athlete.athleticstandard.json"), JSON.stringify(file));
+    writeFileSync(join(dir, "athlete.ath.json"), JSON.stringify(file));
     const res = ath(["check"], dir);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("unknown source");
