@@ -1,0 +1,986 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athleticstandard.dev/schema/0.1.0/athleticstandard.schema.json",
+  "title": "Athletic Standard file",
+  "type": "object",
+  "properties": {
+    "athleticstandard_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Format version (semver). Minor versions may only add optional fields."
+    },
+    "athlete": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "birth_year": {
+          "type": "integer",
+          "minimum": 1900,
+          "maximum": 2100
+        },
+        "sex": {
+          "type": "string",
+          "enum": [
+            "male",
+            "female"
+          ]
+        },
+        "units": {
+          "description": "Display preference only — stored values are always canonical (metric) units",
+          "type": "string",
+          "enum": [
+            "metric",
+            "imperial"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$",
+            "description": "Identifier: lowercase alphanumeric with hyphens/underscores"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "wearable",
+              "export_file",
+              "connector",
+              "manual"
+            ]
+          },
+          "vendor": {
+            "description": "e.g. whoop, oura, apple, garmin — omit for kind=manual",
+            "type": "string"
+          },
+          "detail": {
+            "description": "Human-readable provenance, e.g. 'WHOOP 4.0 via CSV export 2026-08-09'",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "description": "A provenance record. Every hard signal must reference one. `manual` exists so typed-in numbers can be stored as measurements without claiming device provenance."
+      }
+    },
+    "hard_signals": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "hrv_rmssd"
+                  },
+                  "value": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "unit": {
+                    "type": "string",
+                    "const": "ms",
+                    "description": "Fixed canonical unit for this type — no ambiguous values"
+                  },
+                  "recorded_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+                  },
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                    "description": "Reference to sources[].id"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value",
+                  "unit",
+                  "recorded_at",
+                  "source"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "hrv_sdnn"
+                  },
+                  "value": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "unit": {
+                    "type": "string",
+                    "const": "ms",
+                    "description": "Fixed canonical unit for this type — no ambiguous values"
+                  },
+                  "recorded_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+                  },
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                    "description": "Reference to sources[].id"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value",
+                  "unit",
+                  "recorded_at",
+                  "source"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "resting_heart_rate"
+                  },
+                  "value": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "unit": {
+                    "type": "string",
+                    "const": "bpm",
+                    "description": "Fixed canonical unit for this type — no ambiguous values"
+                  },
+                  "recorded_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+                  },
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                    "description": "Reference to sources[].id"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value",
+                  "unit",
+                  "recorded_at",
+                  "source"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "body_weight"
+                  },
+                  "value": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "unit": {
+                    "type": "string",
+                    "const": "kg",
+                    "description": "Fixed canonical unit for this type — no ambiguous values"
+                  },
+                  "recorded_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+                  },
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                    "description": "Reference to sources[].id"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value",
+                  "unit",
+                  "recorded_at",
+                  "source"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "respiratory_rate"
+                  },
+                  "value": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "unit": {
+                    "type": "string",
+                    "const": "brpm",
+                    "description": "Fixed canonical unit for this type — no ambiguous values"
+                  },
+                  "recorded_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+                  },
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                    "description": "Reference to sources[].id"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value",
+                  "unit",
+                  "recorded_at",
+                  "source"
+                ],
+                "additionalProperties": false
+              }
+            ],
+            "description": "A single timestamped device measurement with a fixed canonical unit"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "sleep_session"
+              },
+              "start": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+              },
+              "end": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+              },
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                "description": "Reference to sources[].id"
+              },
+              "aggregates": {
+                "type": "object",
+                "properties": {
+                  "duration_s": {
+                    "description": "Actual sleep, excluding awake time",
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "time_in_bed_s": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "efficiency_pct": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "deep_s": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "rem_s": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "light_s": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "awake_s": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "interruptions": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "additionalProperties": false
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "start",
+              "end",
+              "source",
+              "aggregates"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "workout_session"
+              },
+              "start": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+              },
+              "end": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+              },
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                "description": "Reference to sources[].id"
+              },
+              "aggregates": {
+                "type": "object",
+                "properties": {
+                  "activity": {
+                    "description": "Freeform activity label, e.g. 'crossfit', 'run', 'hyrox'",
+                    "type": "string"
+                  },
+                  "avg_hr_bpm": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "max_hr_bpm": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "energy_kcal": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "distance_m": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "segments": {
+                "description": "Ordered sub-efforts: run splits, HYROX station times",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "description": "e.g. 'run 1km', 'ski erg', 'sled push'"
+                    },
+                    "duration_s": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "distance_m": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "avg_hr_bpm": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "label"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "start",
+              "end",
+              "source",
+              "aggregates"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "benchmark_result"
+              },
+              "benchmark": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                "description": "Reference to benchmarks[].id"
+              },
+              "recorded_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+              },
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                "description": "Reference to sources[].id"
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "duration_s": {
+                    "description": "For score_type=time",
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "reps": {
+                    "description": "For score_type=reps",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "weight_kg": {
+                    "description": "For score_type=load",
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "scaling": {
+                "type": "string",
+                "enum": [
+                  "rx",
+                  "scaled"
+                ]
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "benchmark",
+              "recorded_at",
+              "source",
+              "result"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "description": "Tier 1: device-measured, high trust. Drives predictions. Every hard signal must reference a source."
+      }
+    },
+    "soft_signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "sleep_quality",
+              "soreness",
+              "stress",
+              "mood",
+              "energy",
+              "nutrition",
+              "note"
+            ]
+          },
+          "reported_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+          },
+          "rating": {
+            "type": "number"
+          },
+          "scale": {
+            "description": "Required when rating is present, e.g. '1-5'. Ratings without scales are meaningless.",
+            "type": "string"
+          },
+          "body_region": {
+            "description": "For soreness, e.g. 'quads', 'lower back'",
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "provenance": {
+            "description": "Defaults to { via: 'text' } when absent",
+            "type": "object",
+            "properties": {
+              "via": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "voice",
+                  "photo"
+                ]
+              },
+              "interpreted_by": {
+                "description": "Model that interpreted the input, e.g. 'claude-sonnet-4-5'. Required for via=photo.",
+                "type": "string"
+              },
+              "attachment": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "description": "Filename inside the sibling attachments/ folder"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "file",
+                  "sha256"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "via"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "reported_at"
+        ],
+        "additionalProperties": false,
+        "description": "Tier 2: self-reported, low confidence. Adjusts prediction confidence and explains misses. Structurally cannot claim device provenance: there is no source field."
+      }
+    },
+    "benchmarks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$",
+            "description": "Identifier: lowercase alphanumeric with hyphens/underscores"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "named_wod",
+              "run",
+              "hyrox",
+              "lift",
+              "custom"
+            ]
+          },
+          "score_type": {
+            "type": "string",
+            "enum": [
+              "time",
+              "reps",
+              "load"
+            ]
+          },
+          "definition": {
+            "type": "string",
+            "description": "Human-readable definition, e.g. '21-15-9 reps for time: …'"
+          },
+          "tags": {
+            "description": "Freeform, e.g. ['short', 'high-power']",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "score_type",
+          "definition"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "predictions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$",
+            "description": "Identifier: lowercase alphanumeric with hyphens/underscores"
+          },
+          "benchmark": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$",
+            "description": "Reference to benchmarks[].id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+          },
+          "predicted": {
+            "type": "object",
+            "properties": {
+              "duration_s": {
+                "description": "For score_type=time",
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "reps": {
+                "description": "For score_type=reps",
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "weight_kg": {
+                "description": "For score_type=load",
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "range": {
+            "description": "Stated uncertainty. Grading checks whether the actual landed inside it.",
+            "type": "object",
+            "properties": {
+              "low": {
+                "type": "object",
+                "properties": {
+                  "duration_s": {
+                    "description": "For score_type=time",
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "reps": {
+                    "description": "For score_type=reps",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "weight_kg": {
+                    "description": "For score_type=load",
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "high": {
+                "type": "object",
+                "properties": {
+                  "duration_s": {
+                    "description": "For score_type=time",
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "reps": {
+                    "description": "For score_type=reps",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "weight_kg": {
+                    "description": "For score_type=load",
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "low",
+              "high"
+            ],
+            "additionalProperties": false
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "low",
+              "moderate",
+              "high"
+            ]
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Must cite specific dates and values from the evidence, not vague trends"
+          },
+          "evidence_window": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+                "description": "ISO 8601 date (YYYY-MM-DD)"
+              },
+              "to": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+                "description": "ISO 8601 date (YYYY-MM-DD)"
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ],
+            "additionalProperties": false
+          },
+          "model": {
+            "type": "string",
+            "description": "Model that produced the prediction"
+          },
+          "actual": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "properties": {
+                      "duration_s": {
+                        "description": "For score_type=time",
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "reps": {
+                        "description": "For score_type=reps",
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "weight_kg": {
+                        "description": "For score_type=load",
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "recorded_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+                  }
+                },
+                "required": [
+                  "result",
+                  "recorded_at"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "grade": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "signed_error": {
+                    "type": "number",
+                    "description": "predicted − actual, in the benchmark's native unit (seconds, reps, or kg)"
+                  },
+                  "abs_error_pct": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "in_range": {
+                    "type": "boolean",
+                    "description": "Did the actual land inside the stated range?"
+                  }
+                },
+                "required": [
+                  "signed_error",
+                  "abs_error_pct",
+                  "in_range"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "miss_analysis": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "faster",
+                      "slower",
+                      "higher",
+                      "lower"
+                    ]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": [
+                      "minor",
+                      "significant",
+                      "severe"
+                    ]
+                  },
+                  "candidate_causes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "signal": {
+                          "type": "object",
+                          "properties": {
+                            "tier": {
+                              "type": "string",
+                              "enum": [
+                                "hard",
+                                "soft"
+                              ]
+                            },
+                            "type": {
+                              "type": "string"
+                            },
+                            "date": {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+                              "description": "ISO 8601 date (YYYY-MM-DD)"
+                            }
+                          },
+                          "required": [
+                            "tier",
+                            "type",
+                            "date"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "explanation": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "signal",
+                        "explanation"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "unexplained": {
+                    "type": "boolean"
+                  },
+                  "lesson": {
+                    "description": "One sentence, written to be useful to a future prediction",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "direction",
+                  "severity",
+                  "candidate_causes",
+                  "unexplained"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "benchmark",
+          "created_at",
+          "predicted",
+          "confidence",
+          "reasoning",
+          "evidence_window",
+          "model"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "athleticstandard_version",
+    "athlete",
+    "sources",
+    "hard_signals",
+    "soft_signals",
+    "benchmarks",
+    "predictions"
+  ],
+  "additionalProperties": false,
+  "description": "Athletic Standard: an open, local-first format for a functional-fitness athlete's training and recovery state, designed for AI agents to reason over. Measured signals (hard) and self-reported signals (soft) never mix."
+}

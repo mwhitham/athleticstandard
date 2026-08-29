@@ -1,0 +1,50 @@
+{
+  "name": "athleticstandard",
+  "version": "0.1.0",
+  "description": "An open format for training and recovery data that keeps measured signals apart from self-reported ones — so an AI can tell you whether to train hard today, and show what it weighed.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mwhitham/athleticstandard.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "ath": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "schema",
+    "skill",
+    "SPEC.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "generate:json-schema": "tsx scripts/generate-json-schema.ts",
+    "generate:fixture": "tsx scripts/generate-fixture.ts"
+  },
+  "dependencies": {
+    "zod": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  },
+  "packageManager": "pnpm@10.33.3"
+}
