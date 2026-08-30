@@ -13,7 +13,7 @@ import type {
   SoftSignalT,
   SourceT,
 } from "../schema.js";
-import type { BuiltSeries } from "../series.js";
+import { SERIES_DIR, type BuiltSeries } from "../series.js";
 
 /** What an importer produces, before anything is written. */
 export interface ImportPayload {
@@ -189,8 +189,26 @@ export function renderMergeSummary(summary: MergeSummary, label: string): string
     lines.push(`  soft signals (self-reported): ${summary.softAdded}`);
   }
 
-  for (const built of summary.seriesWritten) {
-    lines.push(`  wrote ${built.ref.file} (${built.ref.n} sample${built.ref.n === 1 ? "" : "s"})`);
+  // Years of data means thousands of sidecars, so this reports totals per quantity
+  // rather than one line per file — a summary nobody can read is not a summary.
+  if (summary.seriesWritten.length > 0) {
+    const byQuantity = new Map<string, { files: number; samples: number }>();
+    for (const built of summary.seriesWritten) {
+      const acc = byQuantity.get(built.ref.quantity) ?? { files: 0, samples: 0 };
+      byQuantity.set(built.ref.quantity, {
+        files: acc.files + 1,
+        samples: acc.samples + built.ref.n,
+      });
+    }
+    const totalFiles = summary.seriesWritten.length;
+    lines.push(
+      `  wrote ${totalFiles} series file${totalFiles === 1 ? "" : "s"} to ${SERIES_DIR}/:`,
+    );
+    for (const [quantity, { files, samples }] of [...byQuantity].sort()) {
+      lines.push(
+        `    ${quantity}: ${samples} sample${samples === 1 ? "" : "s"} across ${files} day${files === 1 ? "" : "s"}`,
+      );
+    }
   }
   if (summary.seriesReplaced > 0) {
     lines.push(`  replaced ${summary.seriesReplaced} previously imported series day(s)`);

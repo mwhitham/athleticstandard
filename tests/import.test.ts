@@ -147,6 +147,14 @@ describe("ath import — Apple Health", () => {
     expect(workout.segments![0]!.duration_s).toBe(600);
   });
 
+  it("summarizes series by quantity rather than one line per file", () => {
+    // Years of data means thousands of sidecars. A per-file list floods the
+    // terminal with output nobody reads.
+    expect(output).toMatch(/wrote 7 series files to series\/:/);
+    expect(output).toMatch(/hrv_beats: 69 samples across 1 day/);
+    expect(output.split("\n").length).toBeLessThan(30);
+  });
+
   it("counts what it will not guess at instead of guessing", () => {
     expect(output).toContain("unmapped HealthKit type: HeadphoneAudioExposure");
     expect(output).toContain("unmapped HealthKit type: DietaryCaffeine");
