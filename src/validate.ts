@@ -146,7 +146,7 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
     if (p.miss_analysis && p.miss_analysis.candidate_causes.length === 0 && !p.miss_analysis.unexplained) {
       err(
         `${path}.miss_analysis`,
-        "no candidate causes and not marked unexplained — an honest 'unexplained' beats a missing story",
+        "no candidate causes and not marked unexplained — set unexplained to true when there is no cause",
       );
     }
     if (!p.reasoning.trim()) {

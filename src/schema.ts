@@ -270,7 +270,7 @@ export const MissCause = z.strictObject({
 
 /**
  * Written by the agent on any miss. Every candidate cause must reference a signal
- * that exists in the file; an honest `unexplained: true` beats a fabricated story.
+ * that exists in the file; if nothing explains the miss, set `unexplained: true`.
  */
 export const MissAnalysis = z.strictObject({
   direction: z.enum(["faster", "slower", "higher", "lower"]),

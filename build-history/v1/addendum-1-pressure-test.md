@@ -16,7 +16,7 @@ Before starting the build, the use case was pressure-tested against what the maj
 
 ## What survives and is strengthened (the three legs)
 
-1. **Falsifiable prediction + graded ledger + backtest.** No lab product makes a testable prediction and prints its own error rate — and structurally none will (OpenAI was sued over health advice the day ChatGPT Health launched; no legal department ships a public scoreboard of its own misses). An open-source tool can. This is now the primary pitch.
+1. **Falsifiable prediction + graded ledger + backtest.** No lab product makes a testable prediction and prints its own error rate — and structurally none will (OpenAI was sued over health advice the day ChatGPT Health launched; no legal department ships a public list of its own misses). An open-source tool can. This is now the primary pitch.
 2. **The open portable file.** 2026 produced four closed AI-health silos (OpenAI, Google, Anthropic, Apple). Nothing exportable, diffable, or portable between agents; track records locked in. Proliferating silos is historically the moment open interchange formats matter. Second leg of the pitch.
 3. **Two-tier trust separation + sport-specificity.** Every lab product ingests device data and chat claims into one undifferentiated soup; none model named benchmarks (Fran, HYROX stations) or scaling. Unchanged, unique.
 
@@ -31,4 +31,4 @@ Before starting the build, the use case was pressure-tested against what the maj
 
 ## Grading procedure, restated plainly (clarity fix)
 
-A prediction is a bet; grading writes down how the bet turned out. Result inside the predicted range → one-line record, done. Outside the range → the agent must explain the miss using only evidence recorded in the file (sleep, HRV, reported soreness); if nothing explains it, it must say "unexplained" and ask the user one question rather than fabricate. Each miss ends in a one-sentence lesson shown to the agent at the next prediction. The accumulated graded ledger is the product's core artifact — the thing no lab product will ever show.
+Write the prediction before the workout, then record whether it was right. Result inside the predicted range → one-line record, done. Outside the range → the agent must explain the miss using only evidence recorded in the file (sleep, HRV, reported soreness); if nothing explains it, it must say "unexplained" and ask the user one question rather than invent a cause. Each miss ends in a one-sentence lesson shown to the agent at the next prediction. The accumulated graded ledger is the product's core artifact — the thing no lab product will ever show.

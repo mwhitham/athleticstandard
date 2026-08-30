@@ -253,7 +253,7 @@ Rules the Skill enforces:
 
 1. **Causes must exist in the file.** Every `candidate_causes` entry references a real signal (tier + type + date). The agent may not invent causes that aren't recorded.
 2. **Precedence order:** day-of hard signals first (trusted), then soft signals from the 72h window, then 7-day anomalies. Listed in that order.
-3. **If the dossier explains nothing**, set `unexplained: true` — and ask the user **one** question: "The prediction missed by 12% and nothing in your data explains it. Anything unusual — sick, judged to stricter standards, new equipment?" The answer is logged as a soft signal (timestamped now, referencing the attempt) and added as a cause. If the user has nothing, `unexplained` stays true. An honest "unexplained" is required over a fabricated story.
+3. **If the dossier explains nothing**, set `unexplained: true` — and ask the user **one** question: "The prediction missed by 12% and nothing in your data explains it. Anything unusual — sick, judged to stricter standards, new equipment?" The answer is logged as a soft signal (timestamped now, referencing the attempt) and added as a cause. If the user has nothing, `unexplained` stays true. Do not invent a cause.
 4. **`lesson` is one sentence**, written to be useful to a future prediction (it surfaces in §5 section 4). Examples: "poor sleep reliably costs this athlete time on short benchmarks"; "soreness reports have not correlated with outcomes — weight them less."
 5. Misses in the *fast* direction get the same treatment — beating the prediction by 15% is the same size of model failure as missing by 15%.
 

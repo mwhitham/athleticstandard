@@ -114,7 +114,7 @@ By device, best-first:
 | **Garmin** | Apple Health export for workouts/sleep (accept the HRV gap) | FIT importer; OW if you have API approval | expecting HRV via Apple Health |
 | **Multiple devices** | import each export; dedup handles overlap | Open Wearables (built for exactly this) | mixing SDNN and RMSSD baselines (Athletic Standard prevents this by typing them separately) |
 
-Universal advice, stated in the README: *export files lose nothing that matters and cost nothing to set up — automation is a convenience upgrade, never a data upgrade.* (Garmin excepted, where the export path has a real HRV gap until the FIT importer ships.)
+Universal advice, stated in the README: a CSV or zip export has the data you need and costs nothing to set up. Connecting an API later is easier, not richer. (Garmin excepted, where the export path has a real HRV gap until the FIT importer ships.)
 
 ## How this maps to the build
 

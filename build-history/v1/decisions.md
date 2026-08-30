@@ -30,7 +30,7 @@ The file is the database. Usable with nothing but a text editor and an LLM. No s
 
 Decision: **adopt OW's vocabulary, canonical units, and Events/Time-Series split in the Athletic Standard spec now** (so a future connector is mechanical), but v1 ingestion is **file-based imports** (WHOOP CSV export, Apple Health export.zip, Oura CSV) which need no infra and work today. The `ath pull` OW connector is the first fast-follow.
 
-What Athletic Standard adds over OW (why Athletic Standard exists at all): the soft-signal tier, benchmark definitions/results, the prediction ledger, and being a portable file rather than a database+API. OW is the pipe; Athletic Standard is the document.
+What Athletic Standard adds over OW (why Athletic Standard exists at all): the soft-signal tier, benchmark definitions/results, the prediction ledger, and being a portable file rather than a database+API. Open Wearables moves data between devices and a store. Athletic Standard is the file you keep.
 
 ## D6. Hosted OAuth broker: deferred, designed-for
 
@@ -64,11 +64,11 @@ Concern: an LLM handed a tidy summary parrots it instead of reading data. Mitiga
 
 ## D10. Evaluation is built into the format and the tool
 
-- The predictions ledger makes the file itself an accruing prospective scoreboard (predictions recorded before attempts, append-only by convention).
+- The predictions ledger stores predictions made before attempts, then the results (append-only by convention).
 - `ath backtest` answers "is this any good / how much data does it need" by replaying history with `context --as-of` truncation. Anchor rule: only results with at least one earlier result on the same benchmark are replayed (benchmark-anchored prediction has nothing to anchor to on a first-ever result; scoring unanchored guesses would pollute the metric). Reports median/mean error, calibration coverage, and error-by-history-depth (the measured cold-start curve).
 - Backtest doubles as the regression test for any harness change.
 
-## D11. Grading and misses are procedural, not vibes
+## D11. Grading and misses follow a fixed procedure
 
 Hit/miss classified deterministically by the CLI (in/out of stated range; miss severity by error %: <5% minor, 5–15% significant, >15% severe). Hits get no analysis (avoids post-hoc storytelling). Misses get a structured `miss_analysis` where every candidate cause must reference a real signal in the file (precedence: day-of hard signals → 72h soft signals → 7-day anomalies), honest `unexplained: true` is required over fabricated stories (with one follow-up question to the user, logged as a soft signal), and a one-sentence `lesson` feeds future predictions via the evidence package. Fast misses are analyzed the same as slow ones.
 

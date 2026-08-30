@@ -7,8 +7,8 @@ Athletic Standard is an open, local-first file format for a functional-fitness a
 ## Design principles
 
 1. **The file is the database.** One JSON document per athlete. No server, no DBMS, no accounts. The format must be fully usable with nothing but a text editor and an LLM.
-2. **The two-tier wall.** Device-measured data (*hard signals*) and self-reported data (*soft signals*) never mix, and the separation is structural, not conventional: hard signals **must** carry provenance (a `source` reference); soft signals **cannot** (the field does not exist, and objects reject unknown keys). An agent reading the file always knows which numbers to trust and which are vibes.
-3. **Predictions live in the file.** An agent's predictions are written into the document before the attempt and graded after, so the file accumulates a falsifiable track record — not a chat log.
+2. **The two-tier wall.** Device-measured data (*hard signals*) and self-reported data (*soft signals*) never mix, and the separation is structural, not conventional: hard signals **must** carry provenance (a `source` reference); soft signals **cannot** (the field does not exist, and objects reject unknown keys). An agent reading the file always knows which numbers were measured and which were self-reported.
+3. **Predictions live in the file.** An agent's predictions are written into the document before the attempt and graded after, so the file keeps a record of whether each prediction was right.
 4. **Canonical units, no ambiguity.** Every measurement type has exactly one unit, adopted from [Open Wearables](https://github.com/the-momentum/open-wearables)' canonical table. There are no unitless `value` fields.
 5. **Append-friendly, diff-friendly.** Arrays of timestamped records, stable field order, pure text. Photos live in a sibling `attachments/` folder, referenced by filename and content hash; the file itself never embeds binary data.
 
@@ -185,7 +185,7 @@ Written by an agent **before** the attempt; graded after; append-only by convent
 
 ### `miss_analysis`
 
-Required semantics: every candidate cause references a signal that exists in the file; if nothing in the file explains the miss, `unexplained` must be `true` — an honest "unexplained" beats a fabricated story (validated: no causes + not unexplained = error).
+Required semantics: every candidate cause references a signal that exists in the file; if nothing in the file explains the miss, `unexplained` must be `true` (validated: no causes + not unexplained = error).
 
 ```json
 { "direction": "slower", "severity": "significant",
@@ -233,7 +233,7 @@ The study behind the format. Athletic Standard deliberately reuses existing voca
 | ExternalDeviceMapping | `sources[]` |
 | canonical-units table | canonical-units rule |
 
-What OW has no concept of — and Athletic Standard adds: self-reported (soft) signals, benchmark definitions/results, the prediction ledger, and portability as a single file rather than a database+API. OW is the pipe; Athletic Standard is the document.
+What OW has no concept of — and Athletic Standard adds: self-reported (soft) signals, benchmark definitions/results, the prediction ledger, and portability as a single file rather than a database+API. Open Wearables moves data between devices and a store. Athletic Standard is the file you keep.
 
 ### Apple HealthKit export
 
