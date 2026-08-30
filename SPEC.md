@@ -109,7 +109,7 @@ A scored attempt at a defined benchmark. A result is measured fact even when han
   "note": "unbroken thrusters first two rounds" }
 ```
 
-`result` is a **score object**: exactly one of `duration_s` (for time-scored benchmarks), `reps`, or `weight_kg`. The key must match the benchmark's `score_type` (validated). `scaling` is `rx` | `scaled`, optional.
+`result` is a **score object**: at least one of `duration_s` (for time-scored benchmarks), `reps`, `weight_kg`. The key matching the benchmark's `score_type` is required (validated); extra keys are allowed. `scaling` is `rx` | `scaled`, optional.
 
 ## `soft_signals` — Tier 2, self-reported
 

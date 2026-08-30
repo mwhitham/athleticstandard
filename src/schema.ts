@@ -145,19 +145,20 @@ export const WorkoutSession = z.strictObject({
   note: z.string().optional(),
 });
 
-/** A benchmark score. Exactly the fields that make sense for the benchmark's score_type. */
+/**
+ * A benchmark score. Must include the field that matches the benchmark's
+ * score_type (checked by the semantic validator); extra fields are allowed
+ * so a time result can also record load or reps when that's useful.
+ */
 export const Score = z
   .strictObject({
     duration_s: z.number().positive().optional().describe("For score_type=time"),
     reps: z.number().int().positive().optional().describe("For score_type=reps"),
     weight_kg: z.number().positive().optional().describe("For score_type=load"),
   })
-  .refine(
-    (s) => [s.duration_s, s.reps, s.weight_kg].filter((v) => v !== undefined).length === 1,
-    {
-      message: "A score must contain exactly one of duration_s, reps, weight_kg",
-    },
-  );
+  .refine((s) => s.duration_s !== undefined || s.reps !== undefined || s.weight_kg !== undefined, {
+    message: "A score must contain at least one of duration_s, reps, weight_kg",
+  });
 
 /**
  * A benchmark result is measured fact even when hand-entered — but its source

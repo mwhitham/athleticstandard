@@ -188,20 +188,19 @@ describe("referential integrity", () => {
 });
 
 describe("score shape", () => {
-  it("accepts exactly one of duration_s, reps, or weight_kg", () => {
+  it("accepts a single field", () => {
     expect(Score.safeParse({ duration_s: 281 }).success).toBe(true);
     expect(Score.safeParse({ reps: 90 }).success).toBe(true);
     expect(Score.safeParse({ weight_kg: 100 }).success).toBe(true);
   });
 
-  it("rejects a score with no fields", () => {
-    expect(Score.safeParse({}).success).toBe(false);
+  it("accepts more than one field so a time result can also record load or reps", () => {
+    expect(Score.safeParse({ duration_s: 281, weight_kg: 43 }).success).toBe(true);
+    expect(Score.safeParse({ duration_s: 281, reps: 90 }).success).toBe(true);
   });
 
-  it("rejects a score that carries more than one field", () => {
-    expect(Score.safeParse({ duration_s: 281, reps: 90 }).success).toBe(false);
-    expect(Score.safeParse({ duration_s: 281, weight_kg: 100 }).success).toBe(false);
-    expect(Score.safeParse({ reps: 90, weight_kg: 100 }).success).toBe(false);
+  it("rejects a score with no fields", () => {
+    expect(Score.safeParse({}).success).toBe(false);
   });
 });
 
