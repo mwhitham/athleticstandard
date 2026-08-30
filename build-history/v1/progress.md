@@ -12,4 +12,4 @@ Tracks the build order from `spec.md` §12. Update when a step lands.
 | 6 | `ath backtest` + evals (incl. planted-contradiction test) | ⬜ |
 | 7 | README + polish | ✅ README in; polish later |
 
-State as of 2026-08-29: 21 tests passing; CLI smoke-tested end to end (`init` → `check` → `stats` on both the fixture and a fresh file). All work on branch `cursor/athletic-standard-v1-b092`, PR #1.
+State as of 2026-08-30: README in. 29 tests passing. Importers are next.
