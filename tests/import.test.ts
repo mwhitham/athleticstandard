@@ -231,6 +231,41 @@ describe("ath import — WHOOP", () => {
   it("leaves a file that passes check", () => {
     expect(ath(["check"], dir).code).toBe(0);
   });
+
+  it("handles the in-progress cycle, which has no end time yet", () => {
+    // WHOOP leaves `Cycle end time` blank for the cycle you are currently in.
+    const trial = newAthlete();
+    writeFileSync(
+      join(trial, "physiological_cycles.csv"),
+      "Cycle start time,Cycle end time,Cycle timezone,Recovery score %,Resting heart rate (bpm),Heart rate variability (ms),Sleep onset,Wake onset\n" +
+        "2026-08-29 22:30:00,,UTC-07:00,81,49,74.1,2026-08-29 22:40:00,2026-08-30 06:25:00\n",
+    );
+    writeFileSync(
+      join(trial, "journal_entries.csv"),
+      "Cycle start time,Cycle end time,Cycle timezone,Question text,Answered yes,Notes\n" +
+        "2026-08-29 22:30:00,,UTC-07:00,Felt stressed today?,true,big deadline\n",
+    );
+
+    const res = ath(["import", trial], trial);
+    expect(res.code).toBe(0);
+    const file = read(trial);
+    expect(pointsOf(file, "hrv_rmssd")).toHaveLength(1);
+    expect(file.soft_signals).toHaveLength(1);
+  });
+
+  it("names the offending value when it cannot read a timestamp", () => {
+    // A bare count says a thousand rows failed without saying why.
+    const trial = newAthlete();
+    writeFileSync(
+      join(trial, "physiological_cycles.csv"),
+      "Cycle start time,Cycle end time,Cycle timezone,Heart rate variability (ms),Wake onset\n" +
+        "2026-08-29 22:30:00,2026-08-30 22:30:00,America/Los_Angeles,74.1,2026-08-30 06:25:00\n",
+    );
+
+    const res = ath(["import", trial], trial);
+    expect(res.stdout).toContain('with timezone "America/Los_Angeles"');
+    expect(res.stdout).toContain("a column format changed");
+  });
 });
 
 describe("ath import — Oura", () => {

@@ -24,6 +24,8 @@ export interface ImportPayload {
   series: BuiltSeries[];
   /** Rows we would not guess at, counted rather than silently dropped. */
   skipped: Map<string, number>;
+  /** One example per skip reason, so a format mismatch is readable. */
+  skipExamples: Map<string, string>;
 }
 
 export interface MergeSummary {
@@ -35,6 +37,7 @@ export interface MergeSummary {
   seriesWritten: BuiltSeries[];
   seriesReplaced: number;
   skipped: Map<string, number>;
+  skipExamples: Map<string, string>;
 }
 
 export function emptyPayload(vendor: string, detail: string): ImportPayload {
@@ -45,11 +48,28 @@ export function emptyPayload(vendor: string, detail: string): ImportPayload {
     softSignals: [],
     series: [],
     skipped: new Map(),
+    skipExamples: new Map(),
   };
 }
 
 export function countSkip(payload: ImportPayload, reason: string, n = 1): void {
   payload.skipped.set(reason, (payload.skipped.get(reason) ?? 0) + n);
+}
+
+/**
+ * Count a skip and keep one example of what was rejected.
+ *
+ * A bare count says a thousand rows failed; it does not say why. Showing the
+ * first offending value turns a silent mismatch into something readable, which
+ * matters most when a vendor changes a column format.
+ */
+export function countSkipWithExample(
+  payload: ImportPayload,
+  reason: string,
+  example: string,
+): void {
+  countSkip(payload, reason);
+  if (!payload.skipExamples.has(reason)) payload.skipExamples.set(reason, example);
 }
 
 /**
@@ -169,6 +189,7 @@ export function mergePayload(
     seriesWritten: payload.series,
     seriesReplaced,
     skipped: payload.skipped,
+    skipExamples: payload.skipExamples,
   };
 }
 
@@ -222,7 +243,14 @@ export function renderMergeSummary(summary: MergeSummary, label: string): string
   if (skippedTotal > 0) {
     lines.push(`  skipped ${skippedTotal} row(s) we will not guess at:`);
     for (const [reason, count] of [...summary.skipped].sort((a, b) => b[1] - a[1])) {
-      lines.push(`    ${reason}: ${count}`);
+      const example = summary.skipExamples.get(reason);
+      lines.push(`    ${reason}: ${count}${example ? ` (e.g. ${example})` : ""}`);
+    }
+    if (totalAdded === 0) {
+      lines.push(
+        `  every row was skipped, which usually means a column format changed. ` +
+          `Please open an issue with the examples above.`,
+      );
     }
   }
 

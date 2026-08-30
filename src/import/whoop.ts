@@ -11,8 +11,14 @@
  * are WHOOP's own composites on WHOOP's own scales (D27).
  */
 import type { HardSignalT, SoftSignalT, SoftSignalTypeT } from "../schema.js";
-import { countSkip, emptyPayload, type ImportPayload } from "./merge.js";
+import { countSkip, countSkipWithExample, emptyPayload, type ImportPayload } from "./merge.js";
 import { cell, minutesToSeconds, num, parseCsv, positive, withOffset, type Row } from "./csv.js";
+
+/** What we actually saw, quoted, so a format change is legible in the summary. */
+function describeTime(value: string | undefined, offset: string | undefined): string {
+  if (!value) return "blank timestamp";
+  return `"${value}" with timezone "${offset ?? "(none)"}"`;
+}
 
 const CYCLES = "physiological_cycles.csv";
 const SLEEPS = "sleeps.csv";
@@ -83,9 +89,13 @@ function importCycles(rows: Row[], sourceId: string, payload: ImportPayload): vo
     const offset = rowOffset(row);
     // Measurements belong to the moment the cycle ended, which is when WHOOP
     // computes them: at wake.
-    const wake = withOffset(cell(row, "Wake onset", "Cycle end time"), offset);
+    const wake = withOffset(cell(row, "Wake onset", "Cycle end time", "Cycle start time"), offset);
     if (!wake) {
-      countSkip(payload, "cycle rows with an unreadable timestamp");
+      countSkipWithExample(
+        payload,
+        "cycle rows with an unreadable timestamp",
+        describeTime(cell(row, "Wake onset", "Cycle end time", "Cycle start time"), offset),
+      );
       continue;
     }
 
@@ -133,7 +143,11 @@ function importSleeps(rows: Row[], sourceId: string, payload: ImportPayload): vo
     const start = withOffset(cell(row, "Sleep onset"), offset);
     const end = withOffset(cell(row, "Wake onset"), offset);
     if (!start || !end || Date.parse(end) <= Date.parse(start)) {
-      countSkip(payload, "sleep rows with an unusable time range");
+      countSkipWithExample(
+        payload,
+        "sleep rows with an unusable time range",
+        `${describeTime(cell(row, "Sleep onset"), offset)} → ${describeTime(cell(row, "Wake onset"), offset)}`,
+      );
       continue;
     }
 
@@ -170,7 +184,11 @@ function importWorkouts(rows: Row[], sourceId: string, payload: ImportPayload): 
     const start = withOffset(cell(row, "Workout start time"), offset);
     const end = withOffset(cell(row, "Workout end time"), offset);
     if (!start || !end || Date.parse(end) <= Date.parse(start)) {
-      countSkip(payload, "workout rows with an unusable time range");
+      countSkipWithExample(
+        payload,
+        "workout rows with an unusable time range",
+        `${describeTime(cell(row, "Workout start time"), offset)} → ${describeTime(cell(row, "Workout end time"), offset)}`,
+      );
       continue;
     }
 
@@ -218,10 +236,17 @@ function importJournal(rows: Row[], payload: ImportPayload): void {
   for (const row of rows) {
     const offset = rowOffset(row);
     // Keyed on the cycle end, the wake date, which is how the other files align.
-    const reportedAt = withOffset(cell(row, "Cycle end time"), offset);
+    // The current cycle has no end yet, so fall back to its start.
+    const reportedAt = withOffset(cell(row, "Cycle end time", "Cycle start time"), offset);
     const question = cell(row, "Question text", "question_text");
     if (!reportedAt || !question) {
-      countSkip(payload, "journal rows missing a question or timestamp");
+      countSkipWithExample(
+        payload,
+        "journal rows missing a question or timestamp",
+        question
+          ? describeTime(cell(row, "Cycle end time", "Cycle start time"), offset)
+          : "no question text column",
+      );
       continue;
     }
 

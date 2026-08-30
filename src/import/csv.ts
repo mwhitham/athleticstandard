@@ -78,14 +78,26 @@ export function withOffset(local: string | undefined, offset: string | undefined
   return `${y}-${mo}-${d}T${h}:${mi}:${s}${normalizedOffset}`;
 }
 
-/** WHOOP writes offsets as "-0700" or "+01:00"; both mean the same thing. */
+/**
+ * Normalize the several ways an export can spell a UTC offset.
+ *
+ * WHOOP's `Cycle timezone` column writes `UTC-07:00`. Bare offsets and a plain
+ * `Z` also appear, so all of them are accepted; the prefix carries no extra
+ * meaning. Anything else returns null rather than being guessed at.
+ */
 export function normalizeOffset(offset: string | undefined): string | null {
   if (!offset) return null;
+
   const trimmed = offset.trim();
-  if (trimmed === "Z" || /^UTC$/i.test(trimmed)) return "Z";
-  const m = /^([+-])(\d{2}):?(\d{2})$/.exec(trimmed);
+  if (trimmed === "Z" || /^(UTC|GMT)$/i.test(trimmed)) return "Z";
+
+  // Strip a leading UTC/GMT, which is decoration around the offset itself.
+  const bare = trimmed.replace(/^(UTC|GMT)\s*/i, "");
+  if (bare === "" || /^[+-]00:?00$/.test(bare)) return "Z";
+
+  const m = /^([+-])(\d{1,2}):?(\d{2})$/.exec(bare);
   if (!m) return null;
-  return `${m[1]}${m[2]}:${m[3]}`;
+  return `${m[1]}${m[2]!.padStart(2, "0")}:${m[3]}`;
 }
 
 /** Minutes to whole seconds, for vendors that report sleep stages in minutes. */

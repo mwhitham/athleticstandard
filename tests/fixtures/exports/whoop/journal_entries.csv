@@ -1,6 +1,6 @@
 Cycle start time,Cycle end time,Cycle timezone,Question text,Answered yes,Notes
-2026-08-08 22:10:00,2026-08-09 06:20:00,-0700,Have any alcoholic drinks?,true,two beers
-2026-08-08 22:10:00,2026-08-09 06:20:00,-0700,Feeling sick or unwell?,false,
-2026-08-08 22:10:00,2026-08-09 06:20:00,-0700,Spend time stretching?,true,
-2026-08-09 22:05:00,2026-08-10 06:30:00,-0700,Have any alcoholic drinks?,false,
-2026-08-09 22:05:00,2026-08-10 06:30:00,-0700,Practice mediation or breathwork?,true,ten minutes
+2026-08-08 22:10:00,2026-08-09 06:20:00,UTC-07:00,Have any alcoholic drinks?,true,two beers
+2026-08-08 22:10:00,2026-08-09 06:20:00,UTC-07:00,Feeling sick or unwell?,false,
+2026-08-08 22:10:00,2026-08-09 06:20:00,UTC-07:00,Spend time stretching?,true,
+2026-08-09 22:05:00,2026-08-10 06:30:00,UTC-07:00,Have any alcoholic drinks?,false,
+2026-08-09 22:05:00,2026-08-10 06:30:00,UTC-07:00,Practice mediation or breathwork?,true,ten minutes
