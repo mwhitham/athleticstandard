@@ -179,6 +179,26 @@ describe("detectRPeaks", () => {
     expect(peaks).toHaveLength(30);
   });
 
+  it("survives a motion artifact many times the height of a beat", () => {
+    // Found on real recordings: a finger slipping off the crown produces one swing
+    // far larger than any QRS complex. Setting the threshold as a fraction of the
+    // largest value put it above every genuine beat, and a 30-second recording
+    // yielded 2 beats instead of 35. The threshold comes from a percentile now.
+    const intervals = Array.from({ length: 30 }, () => 900);
+    for (const amplitude of [5_000, 50_000, 200_000]) {
+      const signal = syntheticEcg(intervals, RATE);
+      const centre = Math.round(5 * RATE);
+      for (let k = -Math.round(0.05 * RATE); k <= Math.round(0.05 * RATE); k++) {
+        const i = centre + k;
+        if (i < 0 || i >= signal.length) continue;
+        const x = k / (0.01 * RATE);
+        signal[i]! += amplitude * Math.exp(-x * x);
+      }
+      const { peaks } = detectRPeaks(signal, RATE);
+      expect(peaks.length, `artifact of ${amplitude} µV`).toBeGreaterThanOrEqual(29);
+    }
+  });
+
   it("reports nothing for a signal with no rhythm", () => {
     const flat = new Array<number>(Math.round(RATE * 30)).fill(0);
     expect(detectRPeaks(flat, RATE).peaks).toHaveLength(0);

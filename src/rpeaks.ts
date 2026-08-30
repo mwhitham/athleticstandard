@@ -93,11 +93,14 @@ function derivative(signal: number[]): number[] {
   return out;
 }
 
-function median(values: number[]): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+/** Value at a percentile of the sorted data, interpolating between neighbours. */
+function percentile(sorted: number[], fraction: number): number {
+  if (sorted.length === 0) return 0;
+  const position = (sorted.length - 1) * fraction;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) return sorted[lower]!;
+  return sorted[lower]! + (sorted[upper]! - sorted[lower]!) * (position - lower);
 }
 
 export interface RPeakResult {
@@ -129,18 +132,26 @@ export function detectRPeaks(microvolts: number[], sampleRateHz: number): RPeakR
   const squared = derivative(filtered).map((v) => v * v);
   const integrated = movingAverage(squared, sampleRateHz * INTEGRATION_WINDOW_S);
 
-  // Threshold from the median rather than the mean: a handful of large beats would
-  // drag a mean upward and hide the smaller ones.
+  // Threshold from percentiles, never from the maximum.
+  //
+  // Using the largest value here was a real bug found on real recordings: one motion
+  // artifact — a finger slipping off the crown — is many times the height of a QRS
+  // complex, so a threshold set as a fraction of the maximum sat above every genuine
+  // beat and a 30-second recording yielded 2 beats instead of 35.
+  //
+  // A high percentile is unmoved by a handful of artifacts. QRS complexes occupy
+  // roughly a sixth of the recording after integration, so the 95th percentile lands
+  // inside a real beat while the median sits in the quiet between them.
   const positive = integrated.filter((v) => v > 0);
   if (positive.length === 0) return empty;
-  const noiseLevel = median(positive);
-  let peakLevel = 0;
-  for (const v of integrated) if (v > peakLevel) peakLevel = v;
-  if (peakLevel <= 0) return empty;
-  const threshold = noiseLevel + 0.25 * (peakLevel - noiseLevel);
+  const sorted = [...positive].sort((a, b) => a - b);
+  const noiseLevel = percentile(sorted, 0.5);
+  const signalLevel = percentile(sorted, 0.95);
+  if (signalLevel <= 0) return empty;
+  const threshold = noiseLevel + 0.25 * (signalLevel - noiseLevel);
 
   // The integrator squares its input, so amplitudes here are on a squared scale.
-  const quality = noiseLevel > 0 ? Math.sqrt(peakLevel / noiseLevel) : 0;
+  const quality = noiseLevel > 0 ? Math.sqrt(signalLevel / noiseLevel) : 0;
 
   const refractorySamples = Math.round(sampleRateHz * REFRACTORY_S);
   const searchSamples = Math.max(1, Math.round(sampleRateHz * PEAK_SEARCH_S));
