@@ -42,7 +42,7 @@
     }
   },
   "bin": {
-    "ath": "./dist/cli.js"
+    "ath": "dist/cli.js"
   },
   "files": [
     "dist",
