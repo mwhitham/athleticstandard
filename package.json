@@ -1,6 +1,6 @@
 {
   "name": "athleticstandard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "An open, local-first file format for an athlete's training and recovery data, built for AI agents to read. Device measurements and self-reported notes stay separate.",
   "license": "MIT",
   "homepage": "https://athleticstandard.ai",

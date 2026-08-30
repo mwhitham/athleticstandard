@@ -75,7 +75,8 @@ describe("ath stats", () => {
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("hard signals: 1593");
     expect(res.stdout).toContain("hrv_rmssd");
-    expect(res.stdout).toMatch(/90-day baselines:/);
+    expect(res.stdout).toMatch(/90-day baselines \(per source/);
+    expect(res.stdout).toMatch(/whoop-1 hrv_rmssd:/);
     expect(res.stdout).toMatch(/n=\d+/);
     expect(res.stdout).toContain("benchmarks defined: 4");
   });

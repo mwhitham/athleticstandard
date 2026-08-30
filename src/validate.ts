@@ -3,7 +3,14 @@
  * Schema validation says "this is shaped like an Athletic Standard file";
  * these checks say "this Athletic Standard file is internally honest."
  */
-import { AthleticStandardFile, type AthleticStandardFileT } from "./schema.js";
+import {
+  AthleticStandardFile,
+  SERIES_QUANTITY_UNITS,
+  type AthleticStandardFileT,
+} from "./schema.js";
+
+/** Calendar day of a timestamp, for keying signals to the day they belong to. */
+const day = (ts: string) => ts.slice(0, 10);
 
 export interface ValidationIssue {
   severity: "error" | "warning";
@@ -64,6 +71,43 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
       if (!benchmarkIds.has(sig.benchmark)) {
         err(`${path}.benchmark`, `unknown benchmark '${sig.benchmark}'`);
       }
+    }
+    if (sig.type === "series_ref") {
+      const expected = SERIES_QUANTITY_UNITS[sig.quantity];
+      if (sig.unit !== expected) {
+        err(`${path}.unit`, `${sig.quantity} is measured in ${expected}, not '${sig.unit}'`);
+      }
+      if (sig.n === 0) {
+        warn(`${path}.n`, `series references an empty sidecar — nothing was imported for this day`);
+      }
+      if (sig.summary.min > sig.summary.max) {
+        err(`${path}.summary`, `summary min (${sig.summary.min}) exceeds max (${sig.summary.max})`);
+      }
+    }
+    if (sig.type === "vendor_score" && !sig.scale.trim()) {
+      err(
+        `${path}.scale`,
+        "a vendor score needs its scale — the number is meaningless without the range it is read against",
+      );
+    }
+  });
+
+  // --- Derived values must cite series this file actually contains (D26) ---
+  // A computed number that references evidence the file lacks cannot be audited.
+  const seriesByKey = new Set(
+    file.hard_signals
+      .filter((s): s is Extract<typeof s, { type: "series_ref" }> => s.type === "series_ref")
+      .map((s) => `${s.quantity}|${s.source}|${day(s.start)}`),
+  );
+  file.hard_signals.forEach((sig, i) => {
+    if (!("derived" in sig) || !sig.derived) return;
+    const key = `${sig.derived.from}|${sig.source}|${day(sig.recorded_at)}`;
+    if (!seriesByKey.has(key)) {
+      err(
+        `hard_signals.${i}.derived.from`,
+        `derived from '${sig.derived.from}' but no such series is recorded for source ` +
+          `'${sig.source}' on ${day(sig.recorded_at)} — a derived value must cite evidence in the file`,
+      );
     }
   });
 

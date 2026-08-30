@@ -26,15 +26,23 @@ const day = (ts: string) => ts.slice(0, 10);
 /** Instant in milliseconds. Offset timestamps cannot be ordered as strings. */
 const instant = (ts: string): number => Date.parse(ts);
 
-/** Mean/sd of a point-measurement type over the trailing `windowDays` of data. */
+/**
+ * Mean/sd of a point-measurement type over the trailing `windowDays` of data.
+ *
+ * `source` is required, because baselines are never pooled across devices (D31).
+ * Two devices disagree by more than the day-to-day change a prediction reads:
+ * against an ECG reference, nocturnal HRV error runs about 6% on an Oura Gen 4
+ * and about 29% on an Apple Watch. Mixing them describes neither device.
+ */
 export function baselineFor(
   file: AthleticStandardFileT,
   type: string,
+  source: string,
   windowDays = 90,
 ): Baseline | null {
   const points = file.hard_signals.filter(
     (s): s is Extract<typeof s, { recorded_at: string; value: number }> =>
-      "value" in s && s.type === type,
+      "value" in s && s.type === type && s.source === source,
   );
   if (points.length === 0) return null;
   const dated = points.map((p) => ({ point: p, t: instant(p.recorded_at) }));
@@ -84,18 +92,60 @@ export function renderStats(file: AthleticStandardFileT): string {
   }
   lines.push("");
 
+  // Baselines are listed per source, never pooled (D31). A reader comparing two
+  // devices should see two numbers and decide, not one number hiding a disagreement.
   const baselineTypes: [string, string][] = [
     ["hrv_rmssd", "ms"],
     ["hrv_sdnn", "ms"],
     ["resting_heart_rate", "bpm"],
+    ["respiratory_rate", "brpm"],
   ];
-  const baselines = baselineTypes
-    .map(([type, unit]) => ({ type, unit, b: baselineFor(file, type) }))
-    .filter((x) => x.b !== null);
-  if (baselines.length > 0) {
-    lines.push("90-day baselines:");
-    for (const { type, unit, b } of baselines) {
-      lines.push(`  ${type}: ${b!.mean}${unit} (n=${b!.n}, ${b!.from} → ${b!.to}, sd ${b!.sd})`);
+  const baselineRows = file.sources.flatMap((src) =>
+    baselineTypes
+      .map(([type, unit]) => ({ source: src.id, type, unit, b: baselineFor(file, type, src.id) }))
+      .filter((x) => x.b !== null),
+  );
+  if (baselineRows.length > 0) {
+    lines.push("90-day baselines (per source — never pooled across devices):");
+    for (const { source, type, unit, b } of baselineRows) {
+      lines.push(
+        `  ${source} ${type}: ${b!.mean}${unit} (n=${b!.n}, ${b!.from} → ${b!.to}, sd ${b!.sd})`,
+      );
+    }
+    lines.push("");
+  }
+
+  const seriesRefs = file.hard_signals.filter(
+    (s): s is Extract<typeof s, { type: "series_ref" }> => s.type === "series_ref",
+  );
+  if (seriesRefs.length > 0) {
+    const byQuantity = new Map<string, { days: number; samples: number }>();
+    for (const s of seriesRefs) {
+      const key = `${s.source} ${s.quantity}`;
+      const acc = byQuantity.get(key) ?? { days: 0, samples: 0 };
+      byQuantity.set(key, { days: acc.days + 1, samples: acc.samples + s.n });
+    }
+    lines.push("sample series (stored alongside the file):");
+    for (const [key, { days, samples }] of [...byQuantity].sort()) {
+      lines.push(`  ${key}: ${samples} samples across ${days} day${days === 1 ? "" : "s"}`);
+    }
+    lines.push("");
+  }
+
+  // Vendor scores are listed apart from measurements on purpose (D27): they are
+  // composites a vendor computed, not something a sensor read.
+  const vendorScores = file.hard_signals.filter(
+    (s): s is Extract<typeof s, { type: "vendor_score" }> => s.type === "vendor_score",
+  );
+  if (vendorScores.length > 0) {
+    const byMetric = new Map<string, number>();
+    for (const s of vendorScores) {
+      const key = `${s.source} ${s.metric} (${s.scale})`;
+      byMetric.set(key, (byMetric.get(key) ?? 0) + 1);
+    }
+    lines.push("vendor scores (vendor-computed, not measurements):");
+    for (const [key, count] of [...byMetric].sort()) {
+      lines.push(`  ${key}: ${count}`);
     }
     lines.push("");
   }
