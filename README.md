@@ -74,15 +74,37 @@ The file is ordinary text, so you can also just open `athlete.ath.json` in any t
 
 ## Loading data from your watch
 
-Not built yet. When it is, you'll download an export file from Apple Health, WHOOP, or Oura and hand it to Athletic Standard in one command. A normal export already contains what's needed, so there'll be nothing to connect, authorize, or pay for.
+Download an export from your device, then hand it over in one command. A normal export already has what's needed, so there is nothing to connect, authorize, or pay for.
+
+```
+ath import ~/Downloads/export.zip
+```
+
+That works for an Apple Health `export.zip`, a WHOOP CSV export, or an Oura export. You don't say which is which — it works that out. It prints what it added, and importing the same file twice adds nothing.
+
+**Where to get the export:**
+
+| Device | How |
+|---|---|
+| Apple Watch | Health app → your picture → Export All Health Data |
+| WHOOP | WHOOP app → More → Data Export |
+| Oura | Membership Hub → Export data |
+
+You can import from more than one device. Readings are never mixed together: each one keeps a note of which device measured it, and the averages in `ath stats` are listed per device. That matters because devices genuinely disagree about heart rate variability — by more than the day-to-day change you'd be looking for — so a single blended number would be misleading. Resting heart rate is a different story: devices agree closely on that.
+
+**A folder appears next to your file.** Things measured constantly, like heart rate all day, would make `athlete.ath.json` tens of megabytes and no longer something you can open and read. Those samples go into a `series/` folder beside it instead, and your file points at them. Nothing is thinned out or averaged away — it's all kept, just not in the middle of the document. Keep the folder with the file. If it goes missing, `ath check` says so and your file still works.
+
+**Your own notes come across too.** If you answered WHOOP's daily questions about alcohol, caffeine, or how you slept, those come in as self-reported entries — kept separate from measurements, because you reported them rather than a sensor.
+
+**Some things are skipped, and it tells you which.** Anything Athletic Standard doesn't have a name for is counted and reported rather than guessed at. Medical records from your health provider are left alone.
 
 ## Where this is up to
 
-Early days. Version 0.1.
+Early days. Version 0.2.
 
-Working today: creating a file, checking it, and summarizing it.
+Working today: creating a file, loading exports from Apple Health, WHOOP, and Oura, checking the file, and summarizing it.
 
-Coming next: loading exports from Apple Health, WHOOP, and Oura, then the commands that record and grade predictions.
+Coming next: the commands that record and grade predictions.
 
 ## Reference
 

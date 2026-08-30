@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -10,6 +10,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(here, "../src/cli.ts");
 const TSX = resolve(here, "../node_modules/.bin/tsx");
 const EXPORTS = resolve(here, "fixtures/exports");
+const WHOOP_CSVS = [
+  "physiological_cycles.csv",
+  "sleeps.csv",
+  "workouts.csv",
+  "journal_entries.csv",
+];
 
 /** Both streams together, because warnings go to stderr even on success. */
 function ath(args: string[], cwd: string): { stdout: string; code: number } {
@@ -324,6 +330,36 @@ describe("ath import — multiple devices", () => {
     const after = seriesOf(read(dir), "hrv_beats");
     expect(after).toHaveLength(before.length);
     expect(after[0]!.n).toBe(before[0]!.n);
+  });
+});
+
+describe("ath import — zip containers", () => {
+  // The README tells people to hand over export.zip directly, so this is the
+  // path most imports actually take.
+  it("reads an Apple export.zip without unpacking it first", () => {
+    const dir = newAthlete();
+    const staging = mkdtempSync(join(tmpdir(), "ath-zip-"));
+    mkdirSync(join(staging, "apple_health_export"), { recursive: true });
+    writeFileSync(
+      join(staging, "apple_health_export", "export.xml"),
+      readFileSync(join(EXPORTS, "apple/export.xml"), "utf8"),
+    );
+    execFileSync("zip", ["-qr", join(dir, "export.zip"), "apple_health_export"], { cwd: staging });
+
+    const res = ath(["import", join(dir, "export.zip")], dir);
+    expect(res.code).toBe(0);
+    expect(seriesOf(read(dir), "hrv_beats")[0]!.n).toBe(69);
+    expect(ath(["check"], dir).code).toBe(0);
+  });
+
+  it("reads a WHOOP CSV export delivered as a zip", () => {
+    const dir = newAthlete();
+    execFileSync("zip", ["-q", join(dir, "whoop.zip"), ...WHOOP_CSVS], { cwd: join(EXPORTS, "whoop") });
+
+    const res = ath(["import", join(dir, "whoop.zip")], dir);
+    expect(res.code).toBe(0);
+    expect(pointsOf(read(dir), "hrv_rmssd").map((s) => s.value)).toEqual([68.4, 74.1]);
+    expect(read(dir).soft_signals).toHaveLength(5);
   });
 });
 
