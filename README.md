@@ -16,27 +16,41 @@ Not an app. Not a coach. Not medical advice.
 
 ## Install
 
-You need [Node.js](https://nodejs.org) 20 or later. Node comes with `npm`, which installs this:
+**1. Install Node.js.** Go to [nodejs.org](https://nodejs.org), download the version marked **LTS**, and open the installer. It's free.
+
+**2. Open a terminal.** On a Mac, press Cmd+Space and type "terminal". On Windows, press Start and type "powershell". This is where you type the commands below.
+
+Check Node arrived:
+
+```
+node -v
+```
+
+If it prints a number starting with `v20` or higher, you're set.
+
+**3. Install this.**
 
 ```
 npm install -g athleticstandard
 ```
 
-That gives you a command called `ath`. If you already use pnpm or bun, `pnpm add -g athleticstandard` and `bun add -g athleticstandard` do the same thing.
+`npm` comes with Node, so it's already there. This gives you a command called `ath`. If you already use pnpm or bun, `pnpm add -g athleticstandard` and `bun add -g athleticstandard` do the same thing.
 
 To update later, run the install again.
 
-If you'd rather not install anything, `npx athleticstandard init` runs it on the spot and always fetches the current version. Then put `npx athleticstandard` in front of each command below instead of `ath`.
+If the install fails with a permissions error, or you'd rather not install anything at all, you can run it on the spot with `npx athleticstandard init`. That always fetches the current version. Then put `npx athleticstandard` in front of each command below instead of `ath`.
 
 ## Start
 
-Open a terminal in an empty folder and run:
+Make a new folder for your data and go into it:
 
 ```
+mkdir my-training
+cd my-training
 ath init
 ```
 
-Answer the questions (or skip them). You’ll get a file called `athlete.ath.json`.
+Answer the questions (or skip them). You’ll get a file called `athlete.ath.json` in that folder. Everything else you run from here works on that file.
 
 ## Look at it
 
