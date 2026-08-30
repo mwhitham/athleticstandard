@@ -1,6 +1,6 @@
 # Getting Data Into Athletic Standard: The Connections Study
 
-**Researched August 2026.** Provider behavior changes; each section notes its sources. This is the living reference for what every connection path yields per provider and how Athletic Standard handles it. The governing decisions are D17–D22 in [`build-history/v1/decisions.md`](../build-history/v1/decisions.md).
+**Researched August 2026.** Provider behavior changes; each section notes its sources. This is the living reference for what every connection path yields per provider and how Athletic Standard handles it. The governing decisions are D17–D22 in [`build-history/v1/decisions.md`](../build-history/v1/decisions.md); the study that informed them is [`build-history/v1/appendix/direct-connections.md`](../build-history/v1/appendix/direct-connections.md).
 
 ## The principle
 
