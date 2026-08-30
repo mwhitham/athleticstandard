@@ -14,14 +14,26 @@ A file on your computer that holds your training and recovery data, in a form an
 
 Not an app. Not a coach. Not medical advice.
 
-## Start
+## Install
 
-You need [Node.js](https://nodejs.org) 20 or later.
+You need [Node.js](https://nodejs.org) 20 or later. Node comes with `npm`, which installs this:
+
+```
+npm install -g athleticstandard
+```
+
+That gives you a command called `ath`. If you already use pnpm or bun, `pnpm add -g athleticstandard` and `bun add -g athleticstandard` do the same thing.
+
+To update later, run the install again.
+
+If you'd rather not install anything, `npx athleticstandard init` runs it on the spot and always fetches the current version. Then put `npx athleticstandard` in front of each command below instead of `ath`.
+
+## Start
 
 Open a terminal in an empty folder and run:
 
 ```
-npx athleticstandard init
+ath init
 ```
 
 Answer the questions (or skip them). You’ll get a file called `athlete.ath.json`.
@@ -29,8 +41,8 @@ Answer the questions (or skip them). You’ll get a file called `athlete.ath.jso
 ## Look at it
 
 ```
-npx athleticstandard check
-npx athleticstandard stats
+ath check
+ath stats
 ```
 
 `check` makes sure the file is valid. `stats` prints a short summary. You can also open `athlete.ath.json` in any text editor.
