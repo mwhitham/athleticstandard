@@ -189,16 +189,24 @@ Points:
 | `AppleSleepingWristTemperature` | `wrist_temperature_sleeping` |
 | `BodyTemperature` | `body_temperature` |
 | `OxygenSaturation` | `oxygen_saturation` (fraction → %) |
+| `LeanBodyMass` | `lean_body_mass` |
+| `BodyFatPercentage` | `body_fat_percentage` |
+| `Height` | `height` |
+| `BloodPressureSystolic` / `BloodPressureDiastolic` | the two blood pressure types |
 
 Beat series: each SDNN record carries a `HeartRateVariabilityMetadataList` of `InstantaneousBeatsPerMinute` entries. Those become an `hrv_beats` series of intervals in milliseconds, plus a derived `hrv_rmssd` point.
 
-Guard rails, so a weak number is never published: at least 20 usable intervals and a window of at least 30 seconds, intervals outside 300–2000 ms dropped as implausible and counted in `n_dropped`, and no derived point at all when too little survives.
+Missed beats are excluded from the calculation rather than merely counted (D35). RMSSD is built from the difference between successive intervals, so a gap in beat detection makes two non-successive intervals look adjacent and invents a large difference — a dropped beat would read as high variability, which is backwards. Continuity is checked against each beat's timestamp and the sequence is split where the gap exceeds 1.5 times the interval the later beat reports.
+
+Remaining guard rails: intervals outside 300–2000 ms dropped as implausible and counted in `n_dropped`, at least 10 continuous pairs, a window of at least 10 seconds, and no derived point at all when too little survives.
 
 Sessions: `SleepAnalysis` records cluster into `sleep_session` — `InBed`, `AsleepCore`, `AsleepDeep`, `AsleepREM`, `Awake`, and the older undifferentiated `Asleep`. A gap of a few hours starts a new night. `Workout` becomes `workout_session`, with `WorkoutEvent` laps as `segments` and distance, energy, and average and maximum heart rate on the aggregates.
 
-Series to sidecars: `HeartRate` → `heart_rate`, `StepCount` → `steps`, `ActiveEnergyBurned` → `active_energy`, `DistanceWalkingRunning` / `DistanceCycling` / `DistanceSwimming` → their own three quantities.
+Series to sidecars, per D32: the three distance quantities; `heart_rate`, `steps`, `active_energy`, `basal_energy`, `exercise_time`, `physical_effort`, `flights_climbed`; the five running quantities (`running_speed`, `running_power`, `running_stride_length`, `running_vertical_oscillation`, `running_ground_contact_time`); the three gait quantities (`walking_speed`, `walking_step_length`, `walking_asymmetry_percentage`); and `time_in_daylight`.
 
-Skipped with a count: clinical and FHIR-shaped records (a standing non-goal), ECG voltage, audio exposure, and any unrecognized identifier.
+Units are converted explicitly and an unrecognized unit is a counted skip naming the identifier and the unit seen, never a value assumed to be canonical (D33).
+
+Skipped with a count, each for a stated reason: diagnostic findings (atrial fibrillation burden, low-heart-rate events, walking steadiness), all audio exposure, derived or goal values (body mass index, sleep duration goal), frailty-oriented mobility measures that stay near-constant for a trained athlete (double support percentage, stand time, stair speeds), clinical and FHIR-shaped records, ECG voltage, and any unrecognized identifier.
 
 ### 5.2 WHOOP CSV
 

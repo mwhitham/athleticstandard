@@ -334,7 +334,13 @@ function parseAppleXml(
           const start = parseAppleDate(attrs.startDate ?? "");
           const end = parseAppleDate(attrs.endDate ?? "");
           if (!start || !end || Date.parse(end) <= Date.parse(start)) {
-            countSkip(payload, "workouts with an unusable time range");
+            // Apple writes the occasional zero-length workout. A session that
+            // began and ended at the same instant did not happen.
+            countSkipWithExample(
+              payload,
+              "workouts with an unusable time range",
+              `${(attrs.workoutActivityType ?? "unknown").replace(/^HKWorkoutActivityType/, "")} from "${attrs.startDate ?? "(none)"}" to "${attrs.endDate ?? "(none)"}"`,
+            );
             break;
           }
           const aggregates: Record<string, unknown> = {};

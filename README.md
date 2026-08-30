@@ -92,11 +92,15 @@ That works for an Apple Health `export.zip`, a WHOOP CSV export, or an Oura expo
 
 You can import from more than one device. Readings are never mixed together: each one keeps a note of which device measured it, and the averages in `ath stats` are listed per device. That matters because devices genuinely disagree about heart rate variability — by more than the day-to-day change you'd be looking for — so a single blended number would be misleading. Resting heart rate is a different story: devices agree closely on that.
 
-**A folder appears next to your file.** Things measured constantly, like heart rate all day, would make `athlete.ath.json` tens of megabytes and no longer something you can open and read. Those samples go into a `series/` folder beside it instead, and your file points at them. Nothing is thinned out or averaged away — it's all kept, just not in the middle of the document. Keep the folder with the file. If it goes missing, `ath check` says so and your file still works.
+**Running data comes across in detail.** If you run outdoors with a watch that records it, you get speed, power, stride length, ground contact time, and how much your body rises with each stride — not just the total distance. That's the difference between knowing a run was slow and knowing whether your form fell apart in the last mile.
+
+**A folder appears next to your file.** Things measured constantly, like heart rate all day, would make `athlete.ath.json` tens of megabytes and no longer something you can open and read. Those samples go into a `series/` folder beside it instead, and your file points at them. Nothing is thinned out or averaged away — it's all kept, just not in the middle of the document. There's one small file per day per measurement, so asking about last week reads seven files rather than a whole year. Keep the folder with the file. If it goes missing, `ath check` says so and your file still works.
 
 **Your own notes come across too.** If you answered WHOOP's daily questions about alcohol, caffeine, or how you slept, those come in as self-reported entries — kept separate from measurements, because you reported them rather than a sensor.
 
-**Some things are skipped, and it tells you which.** Anything Athletic Standard doesn't have a name for is counted and reported rather than guessed at. Medical records from your health provider are left alone.
+**Some things are skipped, and it tells you which.** Anything Athletic Standard doesn't have a name for is counted and reported rather than guessed at, with an example so you can see what it was. The same goes for a measurement in an unfamiliar unit: it gets reported instead of assumed, because a distance in miles quietly stored as metres would look like perfectly good data.
+
+Deliberately left out: medical records from your health provider, and findings that belong with a doctor rather than a training file — irregular heart rhythm notifications, for instance. Also hearing and headphone volume, which have nothing to do with training. Blood pressure *is* kept, because it genuinely bears on how hard a session is on you.
 
 ## Where this is up to
 
