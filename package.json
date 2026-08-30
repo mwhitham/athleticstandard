@@ -1,7 +1,7 @@
 {
   "name": "athleticstandard",
   "version": "0.1.0",
-  "description": "An open format for training and recovery data that keeps measured signals apart from self-reported ones — so an AI can tell you whether to train hard today, and show what it weighed.",
+  "description": "An open, local-first file format for an athlete's training and recovery data, built for AI agents to read. Device measurements and self-reported notes stay separate.",
   "license": "MIT",
   "homepage": "https://athleticstandard.ai",
   "repository": {
