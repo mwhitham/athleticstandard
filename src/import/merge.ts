@@ -75,22 +75,41 @@ export function countSkipWithExample(
 /**
  * Find or create the source for this import.
  *
- * Reused when a matching vendor and kind already exist, so importing a second
- * export from the same device does not create `apple-2` and split that device's
- * history across two baselines.
+ * Reused when a matching vendor, kind, and sensor already exist, so importing a
+ * second export from the same device does not create `apple-2` and split that
+ * device's history across two baselines.
+ *
+ * `sensor` separates two sensors inside one device. An Apple Watch measures beats
+ * optically all day and electrically when the wearer takes an ECG, and the two
+ * disagree substantially — so they get separate sources and their baselines never
+ * pool, for the same reason two different devices do not pool (D31).
  */
-export function upsertSource(file: AthleticStandardFileT, vendor: string, detail: string): string {
-  const existing = file.sources.find((s) => s.vendor === vendor && s.kind === "export_file");
+export function upsertSource(
+  file: AthleticStandardFileT,
+  vendor: string,
+  detail: string,
+  sensor?: string,
+): string {
+  const existing = file.sources.find(
+    (s) => s.vendor === vendor && s.kind === "export_file" && s.sensor === sensor,
+  );
   if (existing) {
     existing.detail = detail;
     return existing.id;
   }
 
+  const stem = sensor ? `${vendor}-${sensor}` : vendor;
   const taken = new Set(file.sources.map((s) => s.id));
-  let id = `${vendor}-1`;
-  for (let n = 2; taken.has(id); n++) id = `${vendor}-${n}`;
+  let id = `${stem}-1`;
+  for (let n = 2; taken.has(id); n++) id = `${stem}-${n}`;
 
-  const source: SourceT = { id, kind: "export_file", vendor, detail };
+  const source: SourceT = {
+    id,
+    kind: "export_file",
+    vendor,
+    ...(sensor ? { sensor } : {}),
+    detail,
+  };
   file.sources.push(source);
   return id;
 }

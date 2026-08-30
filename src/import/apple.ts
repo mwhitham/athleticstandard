@@ -12,7 +12,7 @@
  */
 import { createReadStream } from "node:fs";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { Readable } from "node:stream";
 import sax from "sax";
 import {
@@ -22,9 +22,11 @@ import {
   type SeriesQuantity,
 } from "../schema.js";
 import { buildSeries, type Sample } from "../series.js";
-import { rmssdFromBeats, type Beat } from "../hrv.js";
+import { rmssdFromBeats, rmssdFromIntervals, type Beat } from "../hrv.js";
 import { countSkip, countSkipWithExample, emptyPayload, type ImportPayload } from "./merge.js";
-import type { DetectedExport } from "./detect.js";
+import { beatsFromEcg, parseEcgCsv } from "./ecg.js";
+import { parseGpx, summarizeRoute, type RouteSummary } from "./routes.js";
+import { isEcgEntry, isRouteEntry, readEntries, type DetectedExport } from "./detect.js";
 import { openZipEntryStream, zipEntryNames, openZip } from "./zip.js";
 import {
   passthrough,
@@ -221,6 +223,7 @@ async function openAppleXml(detected: DetectedExport): Promise<Readable> {
 export async function importAppleHealth(
   detected: DetectedExport,
   sourceId: string,
+  ecgSourceId?: string,
 ): Promise<ImportPayload> {
   const payload = emptyPayload("apple", `Apple Health export (${detected.container})`);
   const acc: AppleAccumulator = {
@@ -235,8 +238,11 @@ export async function importAppleHealth(
   await parseAppleXml(stream, acc, payload, sourceId);
 
   payload.hardSignals.push(...acc.points);
+  await attachRouteSplits(detected, acc.workouts, payload);
   payload.hardSignals.push(...acc.workouts);
   payload.hardSignals.push(...buildSleepSessions(acc.sleepFragments, sourceId));
+
+  if (ecgSourceId) await importEcgs(detected, ecgSourceId, payload);
 
   // Beat windows become a per-day hrv_beats series plus one derived RMSSD each.
   const beatsByDay = new Map<string, Sample[]>();
@@ -500,6 +506,141 @@ function parseAppleXml(
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * Give each workout the splits from its GPS route, where one exists.
+ *
+ * Routes are matched to workouts by overlapping time rather than by the date in the
+ * filename, since filenames are rounded to the minute and a wearer can start two
+ * activities close together.
+ *
+ * A workout that already has laps from the watch keeps them: the wearer pressed the
+ * button deliberately, and that division means more to them than an even kilometre.
+ */
+async function attachRouteSplits(
+  detected: DetectedExport,
+  workouts: HardSignalT[],
+  payload: ImportPayload,
+): Promise<void> {
+  const files = await readEntries(detected, isRouteEntry);
+  if (files.size === 0) return;
+
+  const summaries: RouteSummary[] = [];
+  for (const [name, text] of files) {
+    const summary = summarizeRoute(parseGpx(text));
+    if (!summary) {
+      countSkipWithExample(payload, "workout routes with too few track points", name);
+      continue;
+    }
+    summaries.push(summary);
+  }
+
+  let matched = 0;
+  for (const workout of workouts) {
+    if (workout.type !== "workout_session") continue;
+    const workoutStart = Date.parse(workout.start);
+    const workoutEnd = Date.parse(workout.end);
+
+    const route = summaries.find((r) => {
+      const routeStart = Date.parse(r.start);
+      const routeEnd = Date.parse(r.end);
+      return routeStart < workoutEnd && routeEnd > workoutStart;
+    });
+    if (!route) continue;
+
+    matched++;
+    if (route.elevationGainM > 0) {
+      (workout.aggregates as Record<string, number>).elevation_gain_m = route.elevationGainM;
+    }
+    if (!workout.segments || workout.segments.length === 0) {
+      if (route.splits.length > 0) workout.segments = route.splits;
+    }
+  }
+
+  const unmatched = summaries.length - matched;
+  if (unmatched > 0) {
+    countSkip(payload, "workout routes with no workout in the same window", unmatched);
+  }
+}
+
+/**
+ * Read the ECG recordings and derive an RMSSD from each.
+ *
+ * These land under their own source, not the one the rest of the export uses. The
+ * watch measures beats optically all day and electrically only during an ECG, and the
+ * electrical figure is the reference standard while the optical one carries roughly
+ * 29% error. Pooling them would bury exactly the comparison that makes these
+ * recordings worth reading (D31, D37).
+ */
+async function importEcgs(
+  detected: DetectedExport,
+  ecgSourceId: string,
+  payload: ImportPayload,
+): Promise<void> {
+  const files = await readEntries(detected, isEcgEntry);
+  const beatsByDay = new Map<string, Sample[]>();
+
+  for (const [name, text] of files) {
+    const parsed = parseEcgCsv(text);
+    if ("kind" in parsed) {
+      countSkipWithExample(payload, `ECG recordings we could not read`, `${basename(name)}: ${parsed.detail}`);
+      continue;
+    }
+
+    const beats = beatsFromEcg(parsed);
+    if ("kind" in beats) {
+      const reason =
+        beats.kind === "not_sinus"
+          ? "ECG recordings not in sinus rhythm, where variability does not describe recovery"
+          : "ECG recordings with too few detectable beats";
+      countSkipWithExample(payload, reason, `${basename(name)}: ${beats.detail}`);
+      continue;
+    }
+
+    const day = localDay(beats.recordedAt);
+    const samples = beatsByDay.get(day) ?? [];
+    const startMs = Date.parse(beats.recordedAt);
+    // The first beat has no preceding interval, so intervals line up from the second.
+    for (let i = 1; i < beats.offsetsMs.length; i++) {
+      samples.push({
+        at: atOffsetOf(beats.recordedAt, startMs + beats.offsetsMs[i]!),
+        value: Math.round(beats.intervalsMs[i - 1]! * 10) / 10,
+      });
+    }
+    beatsByDay.set(day, samples);
+
+    const rmssd = rmssdFromIntervals(beats.intervalsMs);
+    if (!rmssd) {
+      countSkipWithExample(
+        payload,
+        "ECG recordings with too few usable intervals for RMSSD",
+        basename(name),
+      );
+      continue;
+    }
+
+    payload.hardSignals.push({
+      type: "hrv_rmssd",
+      value: rmssd.rmssd_ms,
+      unit: "ms",
+      recorded_at: beats.recordedAt,
+      source: ecgSourceId,
+      derived: {
+        from: "ecg_beats",
+        method: "rmssd",
+        window_s: rmssd.window_s,
+        n_beats: rmssd.n_beats,
+        ...(rmssd.n_dropped > 0 ? { n_dropped: rmssd.n_dropped } : {}),
+        ...(beats.quality > 0 ? { signal_quality: beats.quality } : {}),
+      },
+    });
+  }
+
+  for (const [day, samples] of beatsByDay) {
+    const built = buildSeries("ecg_beats", ecgSourceId, day, samples);
+    if (built) payload.series.push(built);
+  }
 }
 
 /**

@@ -12,8 +12,11 @@ Tracks the build order from `spec.md` §7. Update when a step lands.
 | 6 | Oura importer | ✅ done |
 | 7 | SPEC.md, README, connections, progress | ✅ done |
 | 8 | Real-export fixes: D32–D36 (running dynamics, unit refusal, beat continuity) | ✅ done |
+| 9 | ECG-derived RMSSD and workout-route splits: D37–D39 | ✅ done |
 
-State as of 2026-08-30: v0.2.0 complete. 110 tests passing, up from 29.
+State as of 2026-08-30: v0.2.0 complete. 148 tests passing, up from 29.
+
+The last two additions came from looking at what else an export folder actually contains rather than at what the spec listed: the ECG recordings and the GPS routes were both sitting there unread. Both are now used, and both are deliberately reduced to the measurement rather than stored whole — beat intervals without the waveform, splits without the coordinates.
 
 Bugs the build caught, worth remembering. The first two came from testing the code; the rest came from running real exports through it, which found things no synthetic fixture would have.
 

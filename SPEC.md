@@ -57,7 +57,10 @@ Every hard signal references a source by id. This registry is what makes "measur
 | `id` | yes | id | unique within the file, e.g. `whoop-1` |
 | `kind` | yes | `wearable` \| `export_file` \| `connector` \| `manual` | |
 | `vendor` | no | string | `whoop`, `oura`, `apple`, `garmin`, … |
+| `sensor` | no | string | which sensor within the device, when one device has several |
 | `detail` | no | string | human-readable, e.g. `"WHOOP 4.0 via CSV export 2026-08-09"` |
+
+**`sensor`** exists because one device can hold sensors of very different accuracy. An Apple Watch times heartbeats optically all day and electrically when the wearer takes an ECG; the electrical figure is the reference standard while the optical one carries roughly 29% error. Those get separate sources — `apple-1` and `apple-ecg-1` — so their baselines never pool, for the same reason two different devices do not pool.
 
 **The `manual` kind** exists so a typed-in number ("my HRV was 54 this morning") can be stored as a measurement *without claiming device provenance*. Agents should weight `manual`-sourced hard signals below device-sourced ones. Writing a typed-in number under a device source is a spec violation.
 
@@ -121,6 +124,9 @@ A point measurement may carry a `derived` block, meaning the value was computed 
 | `window_s` | no | length of the window used |
 | `n_beats` | no | usable samples the value rests on |
 | `n_dropped` | no | samples discarded as implausible |
+| `signal_quality` | no | how far the signal stood above the background |
+
+`signal_quality` is worth carrying because noise degrades the *timing* of each beat rather than the count of them, so it inflates variability rather than reducing it. On a synthetic recording where every beat was found, added noise pushed RMSSD from 25 ms to 33 ms through jitter alone. A reader given this figure can discount a poor recording.
 
 The block records enough to reproduce or dispute the number. Absence of `derived` means the device reported the value. Agents should weight a derived value by the receipts it carries, and the validator requires the cited series to be present in the file for the same source and day.
 
@@ -140,7 +146,8 @@ Heart rate all day, one sample per second inside a workout, and beat-to-beat int
 | `quantity` | Canonical unit | Notes |
 |---|---|---|
 | `heart_rate` | `bpm` | |
-| `hrv_beats` | `ms` | beat-to-beat intervals |
+| `hrv_beats` | `ms` | beat-to-beat intervals, timed optically |
+| `ecg_beats` | `ms` | beat-to-beat intervals, timed from an ECG waveform |
 | `steps` | `count` | |
 | `active_energy` | `kcal` | |
 | `basal_energy` | `kcal` | resting energy; modelled by the device, not measured |
@@ -205,7 +212,7 @@ A night of sleep as one record: `start`, `end`, `source`, and an `aggregates` ob
 
 ### `workout_session`
 
-A training session: `start`, `end`, `source`, an `aggregates` object (optional `activity` label, `avg_hr_bpm`, `max_hr_bpm`, `energy_kcal`, `distance_m`), and optional `segments` — ordered, labeled sub-efforts, which is how run splits and HYROX station times are represented:
+A training session: `start`, `end`, `source`, an `aggregates` object (optional `activity` label, `avg_hr_bpm`, `max_hr_bpm`, `energy_kcal`, `distance_m`, `elevation_gain_m`), and optional `segments` — ordered, labeled sub-efforts, which is how run splits and HYROX station times are represented:
 
 ```json
 "segments": [
@@ -444,6 +451,20 @@ A short window is enough for RMSSD: in athletes a 60-second window agreed with t
 **Missed beats are excluded from the calculation, not just counted.** RMSSD is built from the difference between *successive* intervals. If the device failed to detect a beat, the intervals either side of the gap are not successive, and treating them as though they were invents a large difference — so a dropped beat would read as high variability, which is precisely backwards. Continuity is therefore checked against the timestamp on each beat, the sequence is split wherever the gap exceeds 1.5 times the interval the later beat reports, and pairs spanning a gap contribute nothing.
 
 Remaining guard rails: intervals outside 300–2000 ms are discarded as implausible and counted, at least 10 continuous pairs and a 10-second window are required, and no value is written at all when too little survives. A weak number that looks like a measurement is worse than no number.
+
+**ECG recordings** in the export's `electrocardiograms/` folder are about 30 seconds of single-lead waveform near 511 Hz. Beats are located with the standard Pan–Tompkins method: band-pass to 5–15 Hz where the QRS complex lives, differentiate for its slope, square, integrate over 150 ms, then take peaks above an adaptive threshold with a 200 ms refractory period. Peaks are then localized on the band-passed signal rather than the integrated one, since integration smears a peak in time and the whole purpose here is interval precision.
+
+The intervals become an `ecg_beats` series and a derived `hrv_rmssd`, under a source with `sensor: "ecg"`.
+
+Three rules govern what is kept:
+
+- **The waveform is not stored.** Beat intervals are a performance measurement; the waveform is a clinical artifact.
+- **The rhythm classification is not stored either**, but it *is* read, as a gate. A recording that is not sinus rhythm is refused before any interval is computed, because in atrial fibrillation the rhythm is irregular by definition and RMSSD would measure the arrhythmia rather than autonomic state. Reading a classification to exclude a recording is not the same as recording a diagnosis.
+- **A separate source, always.** Never pooled with the optically measured readings from the same watch.
+
+**Workout routes** in `workout-routes/` are GPX tracks, one per outdoor workout, matched to a workout by overlapping time rather than by filename. They yield `segments` of one split per kilometre and an `elevation_gain_m` aggregate.
+
+Raw coordinates are never stored: a GPS track begins and ends at the athlete's home, and splits and elevation carry none of that. Split boundaries are interpolated rather than snapped to the nearest recorded point, which would otherwise put a second or two of error into every split. Elevation changes under a metre between points are ignored, because GPS altitude wobbles by several metres at a standstill and summing every positive wobble turns a flat course into a mountain. A workout that already carries laps the wearer set keeps them, since a deliberate division means more than an even kilometre.
 
 ### WHOOP standard CSV export
 

@@ -174,3 +174,44 @@ Considered switching to one file per quantity per month, because three years of 
 Kept per-day, for a reason that comes from how the data gets read rather than how it gets written. A prediction looks at roughly the last 30 to 90 days, not a year. Per-day files let a reader open exactly the days in the window; monthly files would force it to load a whole month to see two days of it, which wastes the context the evidence package is trying to conserve.
 
 Rejected alternative: **monthly files.** Fewer files and a smaller directory, and re-importing one day rewriting one month is cheap. Rejected because it trades a real cost at read time for a cosmetic gain at write time, and reading happens far more often than importing.
+
+## D37. Read Apple's ECG recordings for their beat timing, under a separate source
+
+An Apple export carries a folder of ECG recordings: about 30 seconds each of single-lead waveform at roughly 511 Hz. Each one gives R-peak timing measured electrically, which is the reference standard for heart rate variability.
+
+That matters because of the accuracy gap on the same wrist. The watch's optical sensor underestimates HRV by about 8.31 ms, roughly 29% error against a chest strap (O'Grady et al.). Its ECG does not have that problem. So a wearer's own recordings can say how far their own watch runs from the truth, for them, instead of leaving them to apply an average from a study of 39 strangers.
+
+**The recordings get their own source.** `apple-ecg-1`, with a new optional `sensor` field on `sources[]`. Without this the two sets of readings would share `apple-1` and land in one baseline, which would average an accurate figure with an inaccurate one and destroy the comparison that justified reading them. D31 already forbids pooling across devices; the same reasoning applies with more force to two sensors of very different accuracy inside one device.
+
+**Intervals are stored; the waveform and the diagnosis are not.** The intervals between beats are a performance measurement. The waveform, and the words "Atrial Fibrillation", are a clinical finding, and this format is not medical advice. The series quantity is `ecg_beats`, named apart from `hrv_beats` because optical and electrical beat detection are different measurements.
+
+**The rhythm classification is read and then discarded.** It is used as a methodological gate: a recording that is not sinus rhythm is refused before any interval is computed. In atrial fibrillation the rhythm is irregularly irregular by definition, so RMSSD computed from it measures the arrhythmia rather than autonomic state, and letting it into a recovery baseline would be worse than having no reading. Reading the classification to exclude a recording is different from storing a diagnosis about the athlete.
+
+Rejected alternatives:
+
+- **Skip the folder as clinical.** The first instinct, and wrong for the same reason as D32: the waveform is clinical, but the beat timing derived from it is a performance measurement, and it is the most accurate one available.
+- **Write ECG-derived RMSSD under the same source as the watch.** Rejected: it pools a reference measurement with a biased one and hides the discrepancy.
+- **Store the waveform too, so the derivation can be redone later.** Tempting, and it would make a better R-peak detector retrospectively applicable. Rejected because the waveform is the clinical artifact, and the original export still exists if anyone wants to re-derive.
+- **Store the rhythm classification alongside the reading.** Rejected: that is recording a diagnosis.
+
+## D38. Turn workout routes into splits, and store no coordinates
+
+An Apple export carries a GPX file per outdoor workout with a position and timestamp for every point. Alone, a route says where somebody went, which this format has no use for. Processed, it gives the thing a single finishing time cannot: how each kilometre compared with the last, and how much climbing was involved.
+
+Splits fill `workout_session.segments`, which already existed for exactly this and was previously only populated when the wearer pressed the lap button. Climbing goes in a new optional `elevation_gain_m` on the workout aggregates.
+
+Three details worth stating:
+
+- **Raw coordinates are not stored.** A GPS track begins and ends at somebody's home. The format has no reason to hold that, and splits and elevation carry none of it.
+- **Split boundaries are interpolated, not snapped.** Points arrive every second or so, and snapping each kilometre mark to the nearest point would put a second or two of error into every split.
+- **Watch laps win over route splits.** A wearer who pressed the lap button divided the effort deliberately, and that division means more than an even kilometre.
+
+Elevation gain ignores rises under a metre between points, because GPS altitude wobbles by several metres while standing still and summing every positive wobble turns a flat course into a mountain.
+
+Rejected alternative: **store the track as a series so pace and elevation are available point by point.** Rejected on privacy — it is a map of where the athlete lives and trains — and because HealthKit already supplies `running_speed` as a series from the same runs (D32).
+
+## D39. Auxiliary folders are found relative to the file, not just inside the archive
+
+Someone who unzips their export and points at `export.xml` still has `electrocardiograms/` and `workout-routes/` sitting beside it. Looking only inside the given path would silently drop data that is right there, which is the failure mode this version keeps finding.
+
+`DetectedExport` therefore carries an `auxRoot`: the archive for a zip, the folder itself for a folder, and the containing folder for a bare file.

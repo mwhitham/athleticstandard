@@ -44,6 +44,14 @@ export const Source = z
       .string()
       .optional()
       .describe("e.g. whoop, oura, apple, garmin — omit for kind=manual"),
+    sensor: z
+      .string()
+      .optional()
+      .describe(
+        "Which sensor within the device, when one device has several with different " +
+          "accuracy — e.g. 'ecg' versus the optical sensor on the same watch. Separate " +
+          "sensors get separate sources so their baselines never pool.",
+      ),
     detail: z
       .string()
       .optional()
@@ -117,6 +125,15 @@ export const DerivedFrom = z
       .nonnegative()
       .optional()
       .describe("Samples discarded as implausible before computing"),
+    signal_quality: z
+      .number()
+      .positive()
+      .optional()
+      .describe(
+        "How far the signal stood above the background. Noise degrades the timing of " +
+          "each beat rather than the count, so it inflates variability: a reader can " +
+          "discount a low figure instead of treating every reading alike.",
+      ),
   })
   .describe(
     "Present when this tool computed the value instead of reading it from the device. " +
@@ -202,6 +219,11 @@ export const WorkoutSession = z.strictObject({
     max_hr_bpm: z.number().positive().optional(),
     energy_kcal: z.number().nonnegative().optional(),
     distance_m: z.number().nonnegative().optional(),
+    elevation_gain_m: z
+      .number()
+      .nonnegative()
+      .optional()
+      .describe("Total climbing, summed from the positive rises along the route"),
   }),
   segments: z
     .array(WorkoutSegment)
@@ -252,6 +274,10 @@ export const BenchmarkResult = z.strictObject({
 export const SERIES_QUANTITY_UNITS = {
   heart_rate: "bpm",
   hrv_beats: "ms",
+  // Intervals timed electrically from an ECG waveform, which is the reference
+  // standard. Named apart from hrv_beats because optical and electrical beat
+  // detection are different measurements with very different accuracy.
+  ecg_beats: "ms",
   steps: "count",
   active_energy: "kcal",
   distance_walking_running: "m",

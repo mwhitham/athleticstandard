@@ -89,7 +89,9 @@ describe("ath import — Apple Health", () => {
   });
 
   it("computes RMSSD from the beat list and marks it derived (D26)", () => {
-    const rmssd = pointsOf(file, "hrv_rmssd");
+    // Scoped to the watch's optical sensor: the ECG produces its own, under its own
+    // source, and the two must never be counted together.
+    const rmssd = pointsOf(file, "hrv_rmssd").filter((s) => s.source === "apple-1");
     // One window had 65 usable beats; the other had 4 and must produce nothing.
     expect(rmssd).toHaveLength(1);
     const derived = (rmssd[0] as { derived?: Record<string, unknown> }).derived;
@@ -208,6 +210,91 @@ describe("ath import — Apple Health", () => {
     expect(output).toContain("unmapped HealthKit type: HeadphoneAudioExposure");
     expect(output).toContain("unmapped HealthKit type: DietaryCaffeine");
     expect(output).toContain("clinical records (out of scope)");
+  });
+
+  it("puts ECG readings under their own source, never pooled with the watch (D37)", () => {
+    // One watch, two sensors: optical all day, electrical during an ECG. The
+    // electrical figure is the reference standard and the optical one carries about
+    // 29% error, so a shared baseline would bury the comparison.
+    const ecgSource = file.sources.find((s) => s.sensor === "ecg");
+    expect(ecgSource).toBeDefined();
+    expect(ecgSource!.id).toBe("apple-ecg-1");
+    expect(ecgSource!.vendor).toBe("apple");
+
+    const rmssd = pointsOf(file, "hrv_rmssd");
+    const bySource = new Map(rmssd.map((s) => [s.source, s]));
+    expect(bySource.has("apple-1")).toBe(true);
+    expect(bySource.has("apple-ecg-1")).toBe(true);
+  });
+
+  it("derives RMSSD from the ECG waveform with its receipts", () => {
+    // The fixture alternates 880/920 ms, a true RMSSD of 40 ms.
+    const fromEcg = pointsOf(file, "hrv_rmssd").find((s) => s.source === "apple-ecg-1")!;
+    expect(fromEcg.value).toBeGreaterThan(36);
+    expect(fromEcg.value).toBeLessThan(44);
+
+    const derived = (fromEcg as { derived?: Record<string, unknown> }).derived!;
+    expect(derived.from).toBe("ecg_beats");
+    expect(derived.method).toBe("rmssd");
+    expect(Number(derived.signal_quality)).toBeGreaterThan(1);
+  });
+
+  it("refuses an ECG that is not sinus rhythm, and says why", () => {
+    // In atrial fibrillation the rhythm is irregular by definition, so RMSSD would
+    // measure the arrhythmia rather than recovery.
+    expect(output).toContain("not in sinus rhythm");
+    expect(output).toContain("Atrial Fibrillation");
+  });
+
+  it("stores ECG intervals apart from optically detected beats", () => {
+    const ecgBeats = seriesOf(file, "ecg_beats");
+    expect(ecgBeats).toHaveLength(1);
+    expect(ecgBeats[0]!.source).toBe("apple-ecg-1");
+    // Mean interval of an 880/920 alternation is 900 ms.
+    expect(ecgBeats[0]!.summary.mean).toBeGreaterThan(880);
+    expect(ecgBeats[0]!.summary.mean).toBeLessThan(920);
+  });
+
+  it("does not store the waveform or the rhythm classification", () => {
+    // The intervals are a performance measurement; the waveform and the words
+    // "Atrial Fibrillation" are a clinical finding.
+    const raw = readFileSync(join(dir, "athlete.ath.json"), "utf8");
+    expect(raw).not.toContain("Sinus");
+    expect(raw).not.toContain("Fibrillation");
+    expect(seriesOf(file, "ecg_beats")[0]!.n).toBeLessThan(100);
+  });
+
+  it("turns a GPS route into per-kilometre splits (D38)", () => {
+    const run = file.hard_signals.find(
+      (s): s is Extract<typeof s, { type: "workout_session" }> =>
+        s.type === "workout_session" && s.aggregates.activity === "running",
+    )!;
+    expect(run.segments).toBeDefined();
+    expect(run.segments!.map((s) => s.label)).toEqual([
+      "km 1",
+      "km 2",
+      "km 3 (partial)",
+    ]);
+    // The route was built as two even kilometres then a deliberate fade. Points
+    // arrive every five seconds, so interpolating the boundary lands within a second.
+    expect(Math.abs(run.segments![0]!.duration_s! - 300)).toBeLessThan(1);
+    expect(Math.abs(run.segments![1]!.duration_s! - 300)).toBeLessThan(1);
+    expect(run.segments![2]!.duration_s).toBeGreaterThan(150);
+    expect(run.aggregates.elevation_gain_m).toBeGreaterThan(0);
+  });
+
+  it("keeps laps the wearer set rather than replacing them with even kilometres", () => {
+    const strength = file.hard_signals.find(
+      (s): s is Extract<typeof s, { type: "workout_session" }> =>
+        s.type === "workout_session" && s.aggregates.activity === "functionalstrengthtraining",
+    )!;
+    expect(strength.segments!.map((s) => s.label)).toEqual(["lap 1", "lap 2"]);
+  });
+
+  it("does not store raw coordinates, which would reveal where you live", () => {
+    const raw = readFileSync(join(dir, "athlete.ath.json"), "utf8");
+    expect(raw).not.toContain("37.77");
+    expect(raw).not.toContain("-122.41");
   });
 
   it("leaves a file that passes check", () => {
@@ -377,8 +464,14 @@ describe("ath import — multiple devices", () => {
     file = read(dir);
   });
 
-  it("registers one source per device", () => {
-    expect(file.sources.map((s) => s.id)).toEqual(["manual-1", "apple-1", "whoop-1", "oura-1"]);
+  it("registers one source per device, and one more for the ECG sensor", () => {
+    expect(file.sources.map((s) => s.id)).toEqual([
+      "manual-1",
+      "apple-1",
+      "apple-ecg-1",
+      "whoop-1",
+      "oura-1",
+    ]);
   });
 
   it("keeps three devices' readings of the same night as three records (D31)", () => {

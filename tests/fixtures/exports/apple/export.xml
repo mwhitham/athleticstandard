@@ -162,11 +162,17 @@
  <Record type="HKQuantityTypeIdentifierRunningPower" sourceName="Apple Watch" unit="horsepower" startDate="2026-08-09 18:33:00 -0700" endDate="2026-08-09 18:33:00 -0700" value="0.38"/>
  <ClinicalRecord type="Immunization" identifier="abc-123" sourceName="Epic" sourceURL="https://example.invalid" fhirVersion="4.0.1" receivedDate="2026-01-01 00:00:00 -0700" resourceFilePath="/dev/null"/>
 
- <!-- A workout with a lap, which becomes a segment. -->
+ <!-- A workout with laps the wearer set deliberately: those are kept as the segments. -->
  <Workout workoutActivityType="HKWorkoutActivityTypeFunctionalStrengthTraining" duration="42.5" durationUnit="min" totalDistance="1.24" totalDistanceUnit="mi" totalEnergyBurned="412" totalEnergyBurnedUnit="kcal" sourceName="Apple Watch" startDate="2026-08-09 18:00:00 -0700" endDate="2026-08-09 18:42:30 -0700">
   <MetadataEntry key="HKAverageHeartRate" value="142"/>
   <MetadataEntry key="HKMaximumHeartRate" value="178"/>
   <WorkoutEvent type="HKWorkoutEventTypeLap" date="2026-08-09 18:10:00 -0700" duration="10.0" durationUnit="min"/>
   <WorkoutEvent type="HKWorkoutEventTypeLap" date="2026-08-09 18:20:00 -0700" duration="9.5" durationUnit="min"/>
+ </Workout>
+
+ <!-- An outdoor run with no laps: its segments come from the GPS route. -->
+ <Workout workoutActivityType="HKWorkoutActivityTypeRunning" duration="18.0" durationUnit="min" totalDistance="2.4" totalDistanceUnit="km" totalEnergyBurned="238" totalEnergyBurnedUnit="kcal" sourceName="Apple Watch" startDate="2026-08-09 19:00:00 -0700" endDate="2026-08-09 19:18:00 -0700">
+  <MetadataEntry key="HKAverageHeartRate" value="156"/>
+  <MetadataEntry key="HKMaximumHeartRate" value="181"/>
  </Workout>
 </HealthData>

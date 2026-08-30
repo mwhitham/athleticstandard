@@ -7,7 +7,13 @@
  */
 import type { AthleticStandardFileT } from "../schema.js";
 import { writeSeriesFile } from "../series.js";
-import { detectExport, readCsvBundle, type DetectedExport } from "./detect.js";
+import {
+  detectExport,
+  isEcgEntry,
+  listEntries,
+  readCsvBundle,
+  type DetectedExport,
+} from "./detect.js";
 import { importAppleHealth } from "./apple.js";
 import { importWhoop } from "./whoop.js";
 import { importOura } from "./oura.js";
@@ -43,9 +49,26 @@ export async function importExport(
   const detail = `${VENDOR_LABELS[detected.format]} via ${detected.container === "zip" ? "zip export" : detected.container === "directory" ? "export folder" : "CSV export"}`;
   const sourceId = upsertSource(file, detected.format, detail);
 
+  // An Apple export carrying ECG recordings gets a second source for them. The
+  // electrical and optical sensors on one watch disagree substantially, so their
+  // readings are kept apart (D37). Created only when recordings are actually present,
+  // so a wearer who has never taken an ECG gets no empty source.
+  let ecgSourceId: string | undefined;
+  if (detected.format === "apple") {
+    const entries = await listEntries(detected);
+    if (entries.some(isEcgEntry)) {
+      ecgSourceId = upsertSource(
+        file,
+        "apple",
+        `${VENDOR_LABELS.apple} ECG recordings`,
+        "ecg",
+      );
+    }
+  }
+
   const payload =
     detected.format === "apple"
-      ? await importAppleHealth(detected, sourceId)
+      ? await importAppleHealth(detected, sourceId, ecgSourceId)
       : detected.format === "whoop"
         ? importWhoop(await readCsvBundle(detected), sourceId)
         : importOura(await readCsvBundle(detected), sourceId);

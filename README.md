@@ -94,6 +94,12 @@ You can import from more than one device. Readings are never mixed together: eac
 
 **Running data comes across in detail.** If you run outdoors with a watch that records it, you get speed, power, stride length, ground contact time, and how much your body rises with each stride — not just the total distance. That's the difference between knowing a run was slow and knowing whether your form fell apart in the last mile.
 
+**Your runs get split up.** Apple saves the route of every outdoor workout, so each run is broken into per-kilometre times plus how much climbing you did. A single finishing time can't tell you the last kilometre was 40% slower than the first; splits can. The route itself is thrown away after the splits are worked out — your file never stores where you actually went, because that would be a map of your home and your regular routes.
+
+**If you've taken ECGs, they're used as a reference.** Your watch measures heart rate variability with a light sensor all day, and studies put that roughly 29% off from a proper chest strap. But an ECG measures the electrical signal directly, and that *is* the accurate way. So each ECG you've recorded is read for its heartbeat timing and stored separately from your everyday readings — which lets you see how far your own watch drifts, for you, rather than trusting an average from a study of strangers.
+
+Two things it won't do with those. It doesn't keep the ECG trace itself or what the Health app concluded about your heart rhythm; that belongs with your doctor, not in a training file. And if a recording wasn't a normal rhythm, it's skipped rather than used, because heartbeat variation only means "well recovered" when the rhythm is normal in the first place.
+
 **A folder appears next to your file.** Things measured constantly, like heart rate all day, would make `athlete.ath.json` tens of megabytes and no longer something you can open and read. Those samples go into a `series/` folder beside it instead, and your file points at them. Nothing is thinned out or averaged away — it's all kept, just not in the middle of the document. There's one small file per day per measurement, so asking about last week reads seven files rather than a whole year. Keep the folder with the file. If it goes missing, `ath check` says so and your file still works.
 
 **Your own notes come across too.** If you answered WHOOP's daily questions about alcohol, caffeine, or how you slept, those come in as self-reported entries — kept separate from measurements, because you reported them rather than a sensor.
