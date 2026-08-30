@@ -126,9 +126,40 @@
  <Record type="HKQuantityTypeIdentifierDistanceCycling" sourceName="Apple Watch" unit="km" startDate="2026-08-09 17:00:00 -0700" endDate="2026-08-09 17:30:00 -0700" value="14.2"/>
  <Record type="HKQuantityTypeIdentifierDistanceSwimming" sourceName="Apple Watch" unit="yd" startDate="2026-08-09 16:00:00 -0700" endDate="2026-08-09 16:20:00 -0700" value="1200"/>
 
+ <!-- Body composition and cardiovascular measurements. -->
+ <Record type="HKQuantityTypeIdentifierLeanBodyMass" sourceName="Withings" unit="lb" startDate="2026-08-09 07:02:00 -0700" endDate="2026-08-09 07:02:00 -0700" value="148.2"/>
+ <Record type="HKQuantityTypeIdentifierBodyFatPercentage" sourceName="Withings" unit="%" startDate="2026-08-09 07:02:00 -0700" endDate="2026-08-09 07:02:00 -0700" value="0.182"/>
+ <Record type="HKQuantityTypeIdentifierHeight" sourceName="Manual" unit="ft" startDate="2026-08-09 07:00:00 -0700" endDate="2026-08-09 07:00:00 -0700" value="5.9"/>
+ <Record type="HKQuantityTypeIdentifierBloodPressureSystolic" sourceName="Omron" unit="mmHg" startDate="2026-08-09 07:10:00 -0700" endDate="2026-08-09 07:10:00 -0700" value="118"/>
+ <Record type="HKQuantityTypeIdentifierBloodPressureDiastolic" sourceName="Omron" unit="mmHg" startDate="2026-08-09 07:10:00 -0700" endDate="2026-08-09 07:10:00 -0700" value="74"/>
+
+ <!-- Running dynamics, recorded stride by stride during an outdoor run. -->
+ <Record type="HKQuantityTypeIdentifierRunningSpeed" sourceName="Apple Watch" unit="m/s" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="3.42"/>
+ <Record type="HKQuantityTypeIdentifierRunningSpeed" sourceName="Apple Watch" unit="km/hr" startDate="2026-08-09 18:32:00 -0700" endDate="2026-08-09 18:32:00 -0700" value="12.6"/>
+ <Record type="HKQuantityTypeIdentifierRunningPower" sourceName="Apple Watch" unit="W" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="284"/>
+ <Record type="HKQuantityTypeIdentifierRunningStrideLength" sourceName="Apple Watch" unit="m" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="1.18"/>
+ <Record type="HKQuantityTypeIdentifierRunningVerticalOscillation" sourceName="Apple Watch" unit="cm" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="8.4"/>
+ <Record type="HKQuantityTypeIdentifierRunningGroundContactTime" sourceName="Apple Watch" unit="ms" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="243"/>
+
+ <!-- Training load. -->
+ <Record type="HKQuantityTypeIdentifierPhysicalEffort" sourceName="Apple Watch" unit="kcal/hr·kg" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="9.4"/>
+ <Record type="HKQuantityTypeIdentifierBasalEnergyBurned" sourceName="Apple Watch" unit="Cal" startDate="2026-08-09 08:00:00 -0700" endDate="2026-08-09 09:00:00 -0700" value="72.4"/>
+ <Record type="HKQuantityTypeIdentifierAppleExerciseTime" sourceName="Apple Watch" unit="min" startDate="2026-08-09 18:30:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="1"/>
+ <Record type="HKQuantityTypeIdentifierFlightsClimbed" sourceName="iPhone" unit="count" startDate="2026-08-09 12:00:00 -0700" endDate="2026-08-09 12:05:00 -0700" value="4"/>
+
+ <!-- Gait. Walking quality matters for an athlete too. -->
+ <Record type="HKQuantityTypeIdentifierWalkingSpeed" sourceName="iPhone" unit="m/s" startDate="2026-08-09 12:00:00 -0700" endDate="2026-08-09 12:05:00 -0700" value="1.42"/>
+ <Record type="HKQuantityTypeIdentifierWalkingStepLength" sourceName="iPhone" unit="cm" startDate="2026-08-09 12:00:00 -0700" endDate="2026-08-09 12:05:00 -0700" value="78"/>
+ <Record type="HKQuantityTypeIdentifierWalkingAsymmetryPercentage" sourceName="iPhone" unit="%" startDate="2026-08-09 12:00:00 -0700" endDate="2026-08-09 12:05:00 -0700" value="0.014"/>
+ <Record type="HKQuantityTypeIdentifierTimeInDaylight" sourceName="Apple Watch" unit="min" startDate="2026-08-09 12:00:00 -0700" endDate="2026-08-09 13:00:00 -0700" value="46"/>
+
  <!-- Must be counted as skipped, never guessed at. -->
  <Record type="HKQuantityTypeIdentifierHeadphoneAudioExposure" sourceName="iPhone" unit="dBASPL" startDate="2026-08-09 14:00:00 -0700" endDate="2026-08-09 14:30:00 -0700" value="72.5"/>
  <Record type="HKQuantityTypeIdentifierDietaryCaffeine" sourceName="MyFitnessPal" unit="mg" startDate="2026-08-09 07:30:00 -0700" endDate="2026-08-09 07:30:00 -0700" value="95"/>
+ <!-- Diagnostic findings stay out: this is not medical advice. -->
+ <Record type="HKQuantityTypeIdentifierAtrialFibrillationBurden" sourceName="Apple Watch" unit="%" startDate="2026-08-09 03:00:00 -0700" endDate="2026-08-09 04:00:00 -0700" value="0.02"/>
+ <!-- A unit we do not recognize must be reported, never assumed. -->
+ <Record type="HKQuantityTypeIdentifierRunningPower" sourceName="Apple Watch" unit="horsepower" startDate="2026-08-09 18:33:00 -0700" endDate="2026-08-09 18:33:00 -0700" value="0.38"/>
  <ClinicalRecord type="Immunization" identifier="abc-123" sourceName="Epic" sourceURL="https://example.invalid" fhirVersion="4.0.1" receivedDate="2026-01-01 00:00:00 -0700" resourceFilePath="/dev/null"/>
 
  <!-- A workout with a lap, which becomes a segment. -->

@@ -1066,6 +1066,386 @@
                   "source"
                 ],
                 "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "height"
+                  },
+                  "value": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "unit": {
+                    "type": "string",
+                    "const": "cm",
+                    "description": "Fixed canonical unit for this type — no ambiguous values"
+                  },
+                  "recorded_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+                  },
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                    "description": "Reference to sources[].id"
+                  },
+                  "derived": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "description": "Series quantity the value was computed from, e.g. 'hrv_beats'"
+                      },
+                      "method": {
+                        "type": "string",
+                        "description": "Computation applied, e.g. 'rmssd'"
+                      },
+                      "window_s": {
+                        "description": "Length of the window used, in seconds",
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "n_beats": {
+                        "description": "Usable samples the value rests on",
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "n_dropped": {
+                        "description": "Samples discarded as implausible before computing",
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "method"
+                    ],
+                    "additionalProperties": false,
+                    "description": "Present when this tool computed the value instead of reading it from the device. Absent means the device reported it."
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value",
+                  "unit",
+                  "recorded_at",
+                  "source"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "lean_body_mass"
+                  },
+                  "value": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "unit": {
+                    "type": "string",
+                    "const": "kg",
+                    "description": "Fixed canonical unit for this type — no ambiguous values"
+                  },
+                  "recorded_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+                  },
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                    "description": "Reference to sources[].id"
+                  },
+                  "derived": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "description": "Series quantity the value was computed from, e.g. 'hrv_beats'"
+                      },
+                      "method": {
+                        "type": "string",
+                        "description": "Computation applied, e.g. 'rmssd'"
+                      },
+                      "window_s": {
+                        "description": "Length of the window used, in seconds",
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "n_beats": {
+                        "description": "Usable samples the value rests on",
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "n_dropped": {
+                        "description": "Samples discarded as implausible before computing",
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "method"
+                    ],
+                    "additionalProperties": false,
+                    "description": "Present when this tool computed the value instead of reading it from the device. Absent means the device reported it."
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value",
+                  "unit",
+                  "recorded_at",
+                  "source"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "body_fat_percentage"
+                  },
+                  "value": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "unit": {
+                    "type": "string",
+                    "const": "%",
+                    "description": "Fixed canonical unit for this type — no ambiguous values"
+                  },
+                  "recorded_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+                  },
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                    "description": "Reference to sources[].id"
+                  },
+                  "derived": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "description": "Series quantity the value was computed from, e.g. 'hrv_beats'"
+                      },
+                      "method": {
+                        "type": "string",
+                        "description": "Computation applied, e.g. 'rmssd'"
+                      },
+                      "window_s": {
+                        "description": "Length of the window used, in seconds",
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "n_beats": {
+                        "description": "Usable samples the value rests on",
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "n_dropped": {
+                        "description": "Samples discarded as implausible before computing",
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "method"
+                    ],
+                    "additionalProperties": false,
+                    "description": "Present when this tool computed the value instead of reading it from the device. Absent means the device reported it."
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value",
+                  "unit",
+                  "recorded_at",
+                  "source"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "blood_pressure_systolic"
+                  },
+                  "value": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "unit": {
+                    "type": "string",
+                    "const": "mmHg",
+                    "description": "Fixed canonical unit for this type — no ambiguous values"
+                  },
+                  "recorded_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+                  },
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                    "description": "Reference to sources[].id"
+                  },
+                  "derived": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "description": "Series quantity the value was computed from, e.g. 'hrv_beats'"
+                      },
+                      "method": {
+                        "type": "string",
+                        "description": "Computation applied, e.g. 'rmssd'"
+                      },
+                      "window_s": {
+                        "description": "Length of the window used, in seconds",
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "n_beats": {
+                        "description": "Usable samples the value rests on",
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "n_dropped": {
+                        "description": "Samples discarded as implausible before computing",
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "method"
+                    ],
+                    "additionalProperties": false,
+                    "description": "Present when this tool computed the value instead of reading it from the device. Absent means the device reported it."
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value",
+                  "unit",
+                  "recorded_at",
+                  "source"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "blood_pressure_diastolic"
+                  },
+                  "value": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "unit": {
+                    "type": "string",
+                    "const": "mmHg",
+                    "description": "Fixed canonical unit for this type — no ambiguous values"
+                  },
+                  "recorded_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
+                  },
+                  "source": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                    "description": "Reference to sources[].id"
+                  },
+                  "derived": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "description": "Series quantity the value was computed from, e.g. 'hrv_beats'"
+                      },
+                      "method": {
+                        "type": "string",
+                        "description": "Computation applied, e.g. 'rmssd'"
+                      },
+                      "window_s": {
+                        "description": "Length of the window used, in seconds",
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "n_beats": {
+                        "description": "Usable samples the value rests on",
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "n_dropped": {
+                        "description": "Samples discarded as implausible before computing",
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "method"
+                    ],
+                    "additionalProperties": false,
+                    "description": "Present when this tool computed the value instead of reading it from the device. Absent means the device reported it."
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "value",
+                  "unit",
+                  "recorded_at",
+                  "source"
+                ],
+                "additionalProperties": false
               }
             ],
             "description": "A single timestamped device measurement with a fixed canonical unit"
@@ -1321,7 +1701,20 @@
                   "active_energy",
                   "distance_walking_running",
                   "distance_cycling",
-                  "distance_swimming"
+                  "distance_swimming",
+                  "running_speed",
+                  "running_power",
+                  "running_stride_length",
+                  "running_vertical_oscillation",
+                  "running_ground_contact_time",
+                  "physical_effort",
+                  "basal_energy",
+                  "exercise_time",
+                  "flights_climbed",
+                  "walking_speed",
+                  "walking_step_length",
+                  "walking_asymmetry_percentage",
+                  "time_in_daylight"
                 ]
               },
               "unit": {

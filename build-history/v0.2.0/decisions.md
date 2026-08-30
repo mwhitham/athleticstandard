@@ -115,3 +115,62 @@ Rejected alternatives:
 - **Merge same-timestamp readings as duplicates.** Rejected: it would silently discard whichever device imported second.
 
 A command reporting bias, spread, and overlap between two sources is roadmap, not this version. The format guarantee lands now; the analysis waits until the prediction loop exists.
+
+## D32. Import running dynamics, training load, gait, body composition, and blood pressure
+
+Found by importing a real Apple Health export: 928,750 records were being skipped as unmapped, and the largest groups were not junk.
+
+**Running dynamics are the important loss.** Apple records speed, power, stride length, vertical oscillation, and ground contact time stride by stride during outdoor runs on Series 6 and later. These are the measurements that separate a slow effort caused by poor recovery from one caused by form degrading late in the run, and the benchmark library already contains a 5k, a mile, and HYROX — which is mostly running between stations. Dropping them while keeping all-day step counts was the same error as D26.
+
+Also imported:
+
+- **Training load:** `physical_effort` (Apple's METs estimate), `basal_energy`, `exercise_time`, `flights_climbed`.
+- **Gait:** `walking_speed`, `walking_step_length`, `walking_asymmetry_percentage`. Walking quality is a real signal for a trained athlete, and asymmetry is a plausible early sign of injury.
+- **Circadian:** `time_in_daylight`, which feeds sleep timing.
+- **Body composition:** `lean_body_mass`, `body_fat_percentage`, `height`.
+- **Blood pressure:** `blood_pressure_systolic` and `blood_pressure_diastolic`.
+
+Blood pressure needs its reason stated, because it sits closest to the "not medical advice" line. It is a cardiovascular measurement that bears on the load a session imposes and it is standard in athlete screening. That is different from a diagnostic finding.
+
+Still skipped, and each for a reason rather than for want of a name:
+
+- **Diagnostic findings** — atrial fibrillation burden, low heart rate events, walking steadiness. These are conclusions about disease, and holding them in the file invites exactly the medical interpretation the project disclaims.
+- **Hearing health** — every audio exposure type. Nothing to do with training.
+- **Derived or goal values** — body mass index (height and weight recomputed), sleep duration goal (something set, not measured).
+- **Double support percentage, stand time, stair speeds, six-minute walk distance.** Designed as frailty and mobility measures; near-constant for a trained athlete, so they would add volume without a trend.
+
+Rejected alternative: **import every HealthKit type and let the Skill ignore what it does not want.** Tempting, since it needs no judgment. Rejected because a type with no canonical unit and no meaning in this format cannot be validated, cannot be baselined, and would put clinical findings in a file that says it is not medical advice. Refusing to name a thing is honest; naming it wrongly is not.
+
+## D33. An unrecognized unit is a reported skip, never an assumed conversion
+
+Apple's unit strings vary with locale and with the wearer's display settings. The same identifier can arrive in miles or metres, Fahrenheit or Celsius, a fraction or a percentage.
+
+Every converter therefore returns nothing when it does not recognise a unit, and the importer counts that as a skip naming the identifier and the unit it saw. It never falls back to treating the number as already canonical.
+
+The reason is asymmetry of harm. A skipped row is visible and gets fixed. A mile stored as a metre looks like real data, passes validation, and quietly poisons a baseline. This is the same lesson as the WHOOP timezone bug in D34: guessing produced silence, refusing produces a report.
+
+## D34. Skip reasons carry an example
+
+A real WHOOP export skipped all 1,305 of its rows because `Cycle timezone` is written `UTC-07:00` and the parser accepted only the bare `-07:00`. The summary said 1,305 rows were skipped without saying what about them was unreadable, which took a round trip to diagnose.
+
+Skip reasons now quote one example of the offending value, and the summary says plainly when every row failed that a column format has probably changed. Cheap to carry, and it turns a silent mismatch into a bug report.
+
+The deeper lesson is about fixtures. That WHOOP fixture was written from published descriptions of the export rather than from an actual file, and it encoded the same wrong guess as the parser, so the tests passed. A fixture derived from the same assumption as the code under test cannot falsify it. Fixtures now use formats confirmed against real exports.
+
+## D35. RMSSD skips pairs that straddle a missed beat
+
+RMSSD is the root mean square of the difference between **successive** intervals. If a watch fails to detect a beat, the two intervals either side of the gap are not successive, and treating them as if they were invents a large difference. A dropped beat then reads as high variability, which is backwards: it would look like good recovery.
+
+So beat continuity is checked from the timestamps the export attaches to every beat. Where the gap between two beats is more than 1.5 times the interval the later beat reports, the sequence is split and that pair contributes nothing. Intervals outside 300–2000 ms are discarded as implausible and counted.
+
+The minimum window also drops from 30 seconds to 10, following the evidence in D26 rather than caution: RMSSD from a single 10-second recording was a valid proxy for the 4–5 minute standard in 3,387 adults (r = 0.86). Short windows are kept because every derived value carries its `window_s` and beat count, so a reader who wants only long windows can filter on the receipts. A reader given nothing has no choice at all.
+
+Rejected alternative: **derive intervals by accumulating each beat's reported rate and ignore the timestamps.** This is what the first implementation did. Rejected because it cannot see a gap at all — the accumulated positions drift away from where the beats actually fell, and every dropped beat silently becomes variability.
+
+## D36. Sidecar series stay one file per day
+
+Considered switching to one file per quantity per month, because three years of Apple data across the D32 quantities means thousands of files in `series/`.
+
+Kept per-day, for a reason that comes from how the data gets read rather than how it gets written. A prediction looks at roughly the last 30 to 90 days, not a year. Per-day files let a reader open exactly the days in the window; monthly files would force it to load a whole month to see two days of it, which wastes the context the evidence package is trying to conserve.
+
+Rejected alternative: **monthly files.** Fewer files and a smaller directory, and re-importing one day rewriting one month is cheap. Rejected because it trades a real cost at read time for a cosmetic gain at write time, and reading happens far more often than importing.

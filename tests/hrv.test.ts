@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   bpmToIntervalsMs,
   MIN_INTERVALS_FOR_RMSSD,
+  rmssdFromBeats,
   rmssdFromIntervals,
+  type Beat,
 } from "../src/hrv.js";
 
 /** Repeat a pattern until it is long enough to clear the guard rails. */
@@ -54,6 +56,79 @@ describe("rmssdFromIntervals", () => {
 
   it("publishes nothing when every interval is implausible", () => {
     expect(rmssdFromIntervals(repeatTo([50], 40))).toBeNull();
+  });
+});
+
+describe("rmssdFromBeats", () => {
+  /** A continuous run of beats, each placed where its own interval puts it. */
+  function continuous(intervals: number[]): Beat[] {
+    const beats: Beat[] = [];
+    let offsetMs = 0;
+    for (const intervalMs of intervals) {
+      beats.push({ offsetMs, intervalMs });
+      offsetMs += intervalMs;
+    }
+    return beats;
+  }
+
+  it("agrees with the plain interval calculation when no beats are missing", () => {
+    const intervals = repeatTo([800, 900], 40);
+    const fromBeats = rmssdFromBeats(continuous(intervals));
+    expect(fromBeats!.rmssd_ms).toBe(100);
+    expect(fromBeats!.n_beats).toBe(40);
+  });
+
+  it("ignores the pair that straddles a missed beat", () => {
+    // A steady 800 ms rhythm with one beat dropped from the middle. The intervals
+    // either side are both 800, so a naive reading sees no variability — but the
+    // timestamps show a 1600 ms gap where a beat should have been. Splitting there
+    // is what stops a dropped beat from being read as real variation.
+    const beats = continuous(repeatTo([800], 40));
+    const withGap = beats.filter((_, i) => i !== 20);
+
+    const result = rmssdFromBeats(withGap);
+    expect(result).not.toBeNull();
+    expect(result!.rmssd_ms).toBe(0);
+    // 39 beats leave 38 adjacent pairs, one of which spans the gap.
+    expect(result!.n_beats).toBe(39);
+  });
+
+  it("does not invent variability from a dropped beat", () => {
+    // The case that matters. Alternating 700/900 with a beat missing: the pair
+    // across the gap would contribute a spurious difference if counted.
+    const beats = continuous(repeatTo([700, 900], 60));
+    const withGap = beats.filter((_, i) => i !== 30);
+
+    const clean = rmssdFromBeats(beats)!;
+    const gappy = rmssdFromBeats(withGap)!;
+    // Dropping one beat should barely move the result, not spike it.
+    expect(Math.abs(gappy.rmssd_ms - clean.rmssd_ms)).toBeLessThan(5);
+  });
+
+  it("counts implausible intervals as dropped", () => {
+    const beats = continuous(repeatTo([800, 900], 40));
+    beats.push({ offsetMs: 40_000, intervalMs: 2500 });
+    const result = rmssdFromBeats(beats);
+    expect(result!.n_dropped).toBe(1);
+  });
+
+  it("publishes nothing when too few continuous pairs survive", () => {
+    // Every beat isolated by a gap: no pair is trustworthy, so there is no value.
+    const isolated: Beat[] = Array.from({ length: 40 }, (_, i) => ({
+      offsetMs: i * 5000,
+      intervalMs: 800,
+    }));
+    expect(rmssdFromBeats(isolated)).toBeNull();
+  });
+
+  it("accepts a ten-second window, which the literature supports", () => {
+    // RMSSD from a 10-second recording was a valid proxy for the 5-minute standard
+    // in a 3,387-adult study. The window length travels with the value so a reader
+    // can weight it.
+    const result = rmssdFromBeats(continuous(repeatTo([800, 900], 13)));
+    expect(result).not.toBeNull();
+    expect(result!.window_s).toBeGreaterThanOrEqual(10);
+    expect(result!.window_s).toBeLessThan(30);
   });
 });
 

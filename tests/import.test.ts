@@ -150,9 +150,58 @@ describe("ath import — Apple Health", () => {
   it("summarizes series by quantity rather than one line per file", () => {
     // Years of data means thousands of sidecars. A per-file list floods the
     // terminal with output nobody reads.
-    expect(output).toMatch(/wrote 7 series files to series\/:/);
+    expect(output).toMatch(/wrote \d+ series files to series\/:/);
     expect(output).toMatch(/hrv_beats: 69 samples across 1 day/);
-    expect(output.split("\n").length).toBeLessThan(30);
+    // One line per quantity, not one per file.
+    expect(output.split("\n").length).toBeLessThan(60);
+  });
+
+  it("keeps running dynamics, which a run prediction needs (D32)", () => {
+    // These separate "slow because unrecovered" from "slow because form fell apart".
+    expect(seriesOf(file, "running_power")[0]!.summary.mean).toBe(284);
+    expect(seriesOf(file, "running_stride_length")[0]!.summary.mean).toBe(1.18);
+    expect(seriesOf(file, "running_vertical_oscillation")[0]!.summary.mean).toBe(8.4);
+    expect(seriesOf(file, "running_ground_contact_time")[0]!.summary.mean).toBe(243);
+  });
+
+  it("converts running speed from either unit into m/s", () => {
+    // The fixture carries one sample in m/s and one in km/hr: 12.6 km/hr is 3.5 m/s.
+    const speed = seriesOf(file, "running_speed")[0]!;
+    expect(speed.n).toBe(2);
+    expect(speed.summary.min).toBe(3.42);
+    expect(speed.summary.max).toBe(3.5);
+  });
+
+  it("keeps training load and gait", () => {
+    expect(seriesOf(file, "physical_effort")[0]!.summary.mean).toBe(9.4);
+    expect(seriesOf(file, "basal_energy")[0]!.summary.mean).toBe(72.4);
+    expect(seriesOf(file, "exercise_time")[0]!.summary.mean).toBe(1);
+    expect(seriesOf(file, "walking_speed")[0]!.summary.mean).toBe(1.42);
+    // 78 cm becomes 0.78 m.
+    expect(seriesOf(file, "walking_step_length")[0]!.summary.mean).toBe(0.78);
+    expect(seriesOf(file, "walking_asymmetry_percentage")[0]!.summary.mean).toBe(1.4);
+    expect(seriesOf(file, "time_in_daylight")[0]!.summary.mean).toBe(46);
+  });
+
+  it("keeps body composition and blood pressure", () => {
+    // 148.2 lb is 67.22 kg; 5.9 ft is 179.83 cm; 0.182 is 18.2%.
+    expect(pointsOf(file, "lean_body_mass")[0]!.value).toBeCloseTo(67.22, 2);
+    expect(pointsOf(file, "body_fat_percentage")[0]!.value).toBeCloseTo(18.2, 1);
+    expect(pointsOf(file, "height")[0]!.value).toBeCloseTo(179.83, 1);
+    expect(pointsOf(file, "blood_pressure_systolic")[0]!.value).toBe(118);
+    expect(pointsOf(file, "blood_pressure_diastolic")[0]!.value).toBe(74);
+  });
+
+  it("leaves diagnostic findings out, since this is not medical advice", () => {
+    expect(output).toContain("unmapped HealthKit type: AtrialFibrillationBurden");
+  });
+
+  it("reports an unrecognized unit instead of storing a wrong number", () => {
+    // A mile stored as a metre still looks like real data, so an unknown unit is
+    // refused and named rather than assumed.
+    expect(output).toContain('RunningPower in "horsepower"');
+    // The recognized samples still came through.
+    expect(seriesOf(file, "running_power")[0]!.n).toBe(1);
   });
 
   it("counts what it will not guess at instead of guessing", () => {

@@ -82,6 +82,14 @@ export const POINT_MEASUREMENT_UNITS = {
   skin_temperature: "°C",
   wrist_temperature_sleeping: "°C",
   temperature_deviation: "°C",
+  height: "cm",
+  lean_body_mass: "kg",
+  body_fat_percentage: "%",
+  // Cardiovascular, and performance-relevant: blood pressure bears on the load a
+  // session imposes and is standard in athlete screening. Diagnostic findings such
+  // as atrial fibrillation burden stay out of the format — not medical advice.
+  blood_pressure_systolic: "mmHg",
+  blood_pressure_diastolic: "mmHg",
 } as const;
 
 export type PointMeasurementType = keyof typeof POINT_MEASUREMENT_UNITS;
@@ -144,6 +152,11 @@ export const PointMeasurement = z
     pointVariant("skin_temperature"),
     pointVariant("wrist_temperature_sleeping"),
     pointVariant("temperature_deviation"),
+    pointVariant("height"),
+    pointVariant("lean_body_mass"),
+    pointVariant("body_fat_percentage"),
+    pointVariant("blood_pressure_systolic"),
+    pointVariant("blood_pressure_diastolic"),
   ])
   .describe("A single timestamped device measurement with a fixed canonical unit");
 
@@ -230,6 +243,11 @@ export const BenchmarkResult = z.strictObject({
  * Canonical units per series quantity. Distance is split by modality (D29):
  * a triathlete's swim, bike, and run are separate questions, and a single
  * total cannot say which discipline went wrong.
+ *
+ * The running group (D32) is what a device records stride by stride during a run.
+ * These are the measurements that separate "slow because unrecovered" from "slow
+ * because form fell apart late", which is the distinction a benchmark prediction
+ * on a run or a HYROX has to make.
  */
 export const SERIES_QUANTITY_UNITS = {
   heart_rate: "bpm",
@@ -239,6 +257,28 @@ export const SERIES_QUANTITY_UNITS = {
   distance_walking_running: "m",
   distance_cycling: "m",
   distance_swimming: "m",
+
+  // Running dynamics, recorded per stride during outdoor runs.
+  running_speed: "m/s",
+  running_power: "W",
+  running_stride_length: "m",
+  running_vertical_oscillation: "cm",
+  running_ground_contact_time: "ms",
+
+  // Training load.
+  physical_effort: "MET",
+  basal_energy: "kcal",
+  exercise_time: "min",
+  flights_climbed: "count",
+
+  // Gait. Walking quality is a real signal for a trained athlete too, and
+  // asymmetry in particular is a plausible early sign of injury.
+  walking_speed: "m/s",
+  walking_step_length: "m",
+  walking_asymmetry_percentage: "%",
+
+  // Light exposure drives circadian timing, which drives sleep.
+  time_in_daylight: "min",
 } as const;
 
 export type SeriesQuantity = keyof typeof SERIES_QUANTITY_UNITS;

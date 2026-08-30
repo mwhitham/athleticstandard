@@ -15,59 +15,89 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import sax from "sax";
-import type { HardSignalT, PointMeasurementType, SeriesQuantity } from "../schema.js";
+import {
+  POINT_MEASUREMENT_UNITS,
+  type HardSignalT,
+  type PointMeasurementType,
+  type SeriesQuantity,
+} from "../schema.js";
 import { buildSeries, type Sample } from "../series.js";
-import { bpmToIntervalsMs, rmssdFromIntervals } from "../hrv.js";
-import { countSkip, emptyPayload, type ImportPayload } from "./merge.js";
+import { rmssdFromBeats, type Beat } from "../hrv.js";
+import { countSkip, countSkipWithExample, emptyPayload, type ImportPayload } from "./merge.js";
 import type { DetectedExport } from "./detect.js";
 import { openZipEntryStream, zipEntryNames, openZip } from "./zip.js";
+import {
+  passthrough,
+  perMinute,
+  toCelsius,
+  toCentimeters,
+  toCount,
+  toKilocalories,
+  toKilograms,
+  toMets,
+  toMetres,
+  toMetresPerSecond,
+  toMillimetresMercury,
+  toMilliseconds,
+  toMinutes,
+  toPercent,
+  toWatts,
+  type Converter,
+} from "./units.js";
 
 /** HealthKit identifier suffix to point type, with the conversion each needs. */
 interface PointMapping {
   type: PointMeasurementType;
-  /** Apple's unit strings vary by locale and setting, so convert explicitly. */
-  convert?: (value: number, unit: string) => number | null;
+  convert: Converter;
 }
 
-const LB_TO_KG = 0.45359237;
-
 const POINT_MAPPINGS: Record<string, PointMapping> = {
-  HeartRateVariabilitySDNN: {
-    type: "hrv_sdnn",
-    convert: (v, unit) => (unit === "s" ? v * 1000 : v),
-  },
-  RestingHeartRate: { type: "resting_heart_rate" },
-  WalkingHeartRateAverage: { type: "walking_heart_rate" },
-  HeartRateRecoveryOneMinute: { type: "hr_recovery" },
-  RespiratoryRate: { type: "respiratory_rate" },
-  BodyMass: {
-    type: "body_weight",
-    convert: (v, unit) => (unit === "lb" ? v * LB_TO_KG : v),
-  },
-  VO2Max: { type: "vo2_max" },
-  AppleSleepingWristTemperature: { type: "wrist_temperature_sleeping" },
-  BodyTemperature: { type: "body_temperature" },
-  OxygenSaturation: {
-    type: "oxygen_saturation",
-    // Apple stores saturation as a fraction; the format keeps it as a percentage.
-    convert: (v) => (v <= 1 ? v * 100 : v),
-  },
+  HeartRateVariabilitySDNN: { type: "hrv_sdnn", convert: toMilliseconds },
+  RestingHeartRate: { type: "resting_heart_rate", convert: perMinute },
+  WalkingHeartRateAverage: { type: "walking_heart_rate", convert: perMinute },
+  HeartRateRecoveryOneMinute: { type: "hr_recovery", convert: perMinute },
+  RespiratoryRate: { type: "respiratory_rate", convert: perMinute },
+  BodyMass: { type: "body_weight", convert: toKilograms },
+  LeanBodyMass: { type: "lean_body_mass", convert: toKilograms },
+  BodyFatPercentage: { type: "body_fat_percentage", convert: toPercent },
+  Height: { type: "height", convert: toCentimeters },
+  VO2Max: { type: "vo2_max", convert: passthrough },
+  AppleSleepingWristTemperature: { type: "wrist_temperature_sleeping", convert: toCelsius },
+  BodyTemperature: { type: "body_temperature", convert: toCelsius },
+  OxygenSaturation: { type: "oxygen_saturation", convert: toPercent },
+  BloodPressureSystolic: { type: "blood_pressure_systolic", convert: toMillimetresMercury },
+  BloodPressureDiastolic: { type: "blood_pressure_diastolic", convert: toMillimetresMercury },
 };
 
-const SERIES_MAPPINGS: Record<string, { quantity: SeriesQuantity; convert?: (v: number, unit: string) => number }> = {
-  HeartRate: { quantity: "heart_rate" },
-  StepCount: { quantity: "steps" },
-  ActiveEnergyBurned: { quantity: "active_energy" },
-  DistanceWalkingRunning: { quantity: "distance_walking_running", convert: milesAwareMeters },
-  DistanceCycling: { quantity: "distance_cycling", convert: milesAwareMeters },
-  DistanceSwimming: { quantity: "distance_swimming", convert: milesAwareMeters },
+const SERIES_MAPPINGS: Record<string, SeriesMapping> = {
+  HeartRate: { quantity: "heart_rate", convert: perMinute },
+  StepCount: { quantity: "steps", convert: toCount },
+  ActiveEnergyBurned: { quantity: "active_energy", convert: toKilocalories },
+  BasalEnergyBurned: { quantity: "basal_energy", convert: toKilocalories },
+  DistanceWalkingRunning: { quantity: "distance_walking_running", convert: toMetres },
+  DistanceCycling: { quantity: "distance_cycling", convert: toMetres },
+  DistanceSwimming: { quantity: "distance_swimming", convert: toMetres },
+
+  RunningSpeed: { quantity: "running_speed", convert: toMetresPerSecond },
+  RunningPower: { quantity: "running_power", convert: toWatts },
+  RunningStrideLength: { quantity: "running_stride_length", convert: toMetres },
+  RunningVerticalOscillation: { quantity: "running_vertical_oscillation", convert: toCentimeters },
+  RunningGroundContactTime: { quantity: "running_ground_contact_time", convert: toMilliseconds },
+
+  PhysicalEffort: { quantity: "physical_effort", convert: toMets },
+  AppleExerciseTime: { quantity: "exercise_time", convert: toMinutes },
+  FlightsClimbed: { quantity: "flights_climbed", convert: toCount },
+
+  WalkingSpeed: { quantity: "walking_speed", convert: toMetresPerSecond },
+  WalkingStepLength: { quantity: "walking_step_length", convert: toMetres },
+  WalkingAsymmetryPercentage: { quantity: "walking_asymmetry_percentage", convert: toPercent },
+
+  TimeInDaylight: { quantity: "time_in_daylight", convert: toMinutes },
 };
 
-function milesAwareMeters(value: number, unit: string): number {
-  if (unit === "mi") return value * 1609.344;
-  if (unit === "km") return value * 1000;
-  if (unit === "yd") return value * 0.9144;
-  return value;
+interface SeriesMapping {
+  quantity: SeriesQuantity;
+  convert: Converter;
 }
 
 /** Sleep stage identifiers, including the undifferentiated older value. */
@@ -134,7 +164,29 @@ interface SleepFragment {
 
 interface BeatWindow {
   recordedAt: string;
-  intervalsMs: number[];
+  beats: Beat[];
+}
+
+/**
+ * Beat entries carry a time of day (`6:12:46.87`) with no date, so it is read as an
+ * offset from the record's own start time. A window crossing midnight wraps, which
+ * is handled by adding a day when the clock appears to go backwards.
+ */
+function beatOffsetMs(recordedAt: string, timeOfDay: string): number | null {
+  const m = /^(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/.exec(timeOfDay.trim());
+  if (!m) return null;
+  const [, h, mi, s, frac = "0"] = m;
+  const beatMs =
+    (Number(h) * 3600 + Number(mi) * 60 + Number(s)) * 1000 + Number(frac.padEnd(3, "0"));
+
+  const startClock = /T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?/.exec(recordedAt);
+  if (!startClock) return null;
+  const [, sh, smi, ss, sfrac = "0"] = startClock;
+  const startMs =
+    (Number(sh) * 3600 + Number(smi) * 60 + Number(ss)) * 1000 + Number(sfrac.padEnd(3, "0"));
+
+  const offset = beatMs - startMs;
+  return offset < 0 ? offset + 86_400_000 : offset;
 }
 
 interface AppleAccumulator {
@@ -191,19 +243,18 @@ export async function importAppleHealth(
   for (const window of acc.beatWindows) {
     const day = localDay(window.recordedAt);
     const samples = beatsByDay.get(day) ?? [];
-    // Intervals are laid out sequentially from the window's start; each sample's
-    // instant is where that beat fell, so the sidecar keeps the real spacing.
-    let cursor = Date.parse(window.recordedAt);
-    for (const interval of window.intervalsMs) {
+    // Each beat is placed where the export says it fell, not where accumulating
+    // intervals would put it, so a missed beat stays visible as a gap.
+    const windowStartMs = Date.parse(window.recordedAt);
+    for (const beat of window.beats) {
       samples.push({
-        at: atOffsetOf(window.recordedAt, cursor),
-        value: Math.round(interval * 10) / 10,
+        at: atOffsetOf(window.recordedAt, windowStartMs + beat.offsetMs),
+        value: Math.round(beat.intervalMs * 10) / 10,
       });
-      cursor += interval;
     }
     beatsByDay.set(day, samples);
 
-    const rmssd = rmssdFromIntervals(window.intervalsMs);
+    const rmssd = rmssdFromBeats(window.beats);
     if (!rmssd) {
       countSkip(payload, "HRV beat windows too short or sparse for RMSSD");
       continue;
@@ -270,7 +321,12 @@ function parseAppleXml(
         case "InstantaneousBeatsPerMinute": {
           if (!currentBeatWindow) break;
           const bpm = Number(attrs.bpm);
-          if (Number.isFinite(bpm) && bpm > 0) currentBeatWindow.intervalsMs.push(60000 / bpm);
+          if (!Number.isFinite(bpm) || bpm <= 0) break;
+          const offsetMs = beatOffsetMs(currentBeatWindow.recordedAt, attrs.time ?? "");
+          if (offsetMs === null) break;
+          // The rate a beat reports is the interval that produced it: 70 bpm is a
+          // gap of 60000/70 ms.
+          currentBeatWindow.beats.push({ offsetMs, intervalMs: 60000 / bpm });
           break;
         }
 
@@ -287,7 +343,7 @@ function parseAppleXml(
           const distance = Number(attrs.totalDistance);
           if (Number.isFinite(distance) && distance > 0) {
             aggregates.distance_m = round(
-              milesAwareMeters(distance, attrs.totalDistanceUnit ?? "m"),
+              toMetres(distance, attrs.totalDistanceUnit ?? "m") ?? distance,
             );
           }
           const energy = Number(attrs.totalEnergyBurned);
@@ -326,7 +382,7 @@ function parseAppleXml(
 
     parser.on("closetag", (name) => {
       if (name === "Record" && currentBeatWindow) {
-        if (currentBeatWindow.intervalsMs.length > 0) acc.beatWindows.push(currentBeatWindow);
+        if (currentBeatWindow.beats.length > 0) acc.beatWindows.push(currentBeatWindow);
         currentBeatWindow = null;
       }
       if (name === "Workout" && currentWorkout) {
@@ -372,22 +428,30 @@ function parseAppleXml(
           countSkip(payload, "measurements with a non-numeric value");
           return;
         }
-        const converted = point.convert ? point.convert(raw, attrs.unit ?? "") : raw;
-        if (converted === null || !Number.isFinite(converted) || converted <= 0) {
+        const converted = point.convert(raw, attrs.unit ?? "");
+        if (converted === null) {
+          countSkipWithExample(
+            payload,
+            `measurements in a unit we do not recognize`,
+            `${identifier} in "${attrs.unit ?? "(none)"}"`,
+          );
+          return;
+        }
+        if (!Number.isFinite(converted) || converted <= 0) {
           countSkip(payload, "measurements outside a plausible range");
           return;
         }
         acc.points.push({
           type: point.type,
           value: round(converted),
-          unit: POINT_UNITS[point.type],
+          unit: POINT_MEASUREMENT_UNITS[point.type],
           recorded_at: startDate,
           source: sourceId,
         } as HardSignalT);
 
         // An SDNN record may carry the beats it was computed from.
         if (point.type === "hrv_sdnn") {
-          currentBeatWindow = { recordedAt: startDate, intervalsMs: [] };
+          currentBeatWindow = { recordedAt: startDate, beats: [] };
         }
         return;
       }
@@ -403,7 +467,15 @@ function parseAppleXml(
           countSkip(payload, "series samples with a non-numeric value");
           return;
         }
-        const value = series.convert ? series.convert(raw, attrs.unit ?? "") : raw;
+        const value = series.convert(raw, attrs.unit ?? "");
+        if (value === null) {
+          countSkipWithExample(
+            payload,
+            `series samples in a unit we do not recognize`,
+            `${identifier} in "${attrs.unit ?? "(none)"}"`,
+          );
+          return;
+        }
         const byDay = acc.series.get(series.quantity) ?? new Map<string, Sample[]>();
         const day = localDay(startDate);
         const samples = byDay.get(day) ?? [];
@@ -419,23 +491,6 @@ function parseAppleXml(
     stream.pipe(parser as unknown as NodeJS.WritableStream);
   });
 }
-
-/** Canonical unit lookup, kept local so the mapping table stays readable. */
-const POINT_UNITS: Record<PointMeasurementType, string> = {
-  hrv_rmssd: "ms",
-  hrv_sdnn: "ms",
-  resting_heart_rate: "bpm",
-  body_weight: "kg",
-  respiratory_rate: "brpm",
-  vo2_max: "ml/kg/min",
-  hr_recovery: "bpm",
-  walking_heart_rate: "bpm",
-  oxygen_saturation: "%",
-  body_temperature: "°C",
-  skin_temperature: "°C",
-  wrist_temperature_sleeping: "°C",
-  temperature_deviation: "°C",
-};
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;

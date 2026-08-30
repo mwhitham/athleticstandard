@@ -89,6 +89,13 @@ A single timestamped reading.
 | `skin_temperature` | `°C` | measured at the skin |
 | `wrist_temperature_sleeping` | `°C` | overnight wrist measurement |
 | `temperature_deviation` | `°C` | a signed delta from a vendor baseline |
+| `height` | `cm` | |
+| `lean_body_mass` | `kg` | |
+| `body_fat_percentage` | `%` | |
+| `blood_pressure_systolic` | `mmHg` | |
+| `blood_pressure_diastolic` | `mmHg` | |
+
+Blood pressure is here because it is a cardiovascular measurement that bears on the load a session imposes, and it is standard in athlete screening. Diagnostic findings are a different thing and stay out of the format: atrial fibrillation burden, low-heart-rate events, and walking steadiness are conclusions about disease, and this format is not medical advice.
 
 The `unit` field is mandatory and must equal the canonical unit — it is redundant on purpose, so a record read in isolation is never ambiguous.
 
@@ -130,17 +137,34 @@ Heart rate all day, one sample per second inside a workout, and beat-to-beat int
   "summary": { "min": 47, "max": 178, "mean": 71.4 } }
 ```
 
-| `quantity` | Canonical unit |
-|---|---|
-| `heart_rate` | `bpm` |
-| `hrv_beats` | `ms` (beat-to-beat intervals) |
-| `steps` | `count` |
-| `active_energy` | `kcal` |
-| `distance_walking_running` | `m` |
-| `distance_cycling` | `m` |
-| `distance_swimming` | `m` |
+| `quantity` | Canonical unit | Notes |
+|---|---|---|
+| `heart_rate` | `bpm` | |
+| `hrv_beats` | `ms` | beat-to-beat intervals |
+| `steps` | `count` | |
+| `active_energy` | `kcal` | |
+| `basal_energy` | `kcal` | resting energy; modelled by the device, not measured |
+| `exercise_time` | `min` | minutes at brisk-walk intensity or above |
+| `physical_effort` | `MET` | the device's effort estimate |
+| `flights_climbed` | `count` | |
+| `distance_walking_running` | `m` | |
+| `distance_cycling` | `m` | |
+| `distance_swimming` | `m` | |
+| `running_speed` | `m/s` | |
+| `running_power` | `W` | rate of work needed to hold pace |
+| `running_stride_length` | `m` | |
+| `running_vertical_oscillation` | `cm` | pelvis rise per stride |
+| `running_ground_contact_time` | `ms` | |
+| `walking_speed` | `m/s` | |
+| `walking_step_length` | `m` | |
+| `walking_asymmetry_percentage` | `%` | one foot moving differently from the other |
+| `time_in_daylight` | `min` | |
 
 Distance is split by modality because a multi-sport athlete's disciplines are separate questions: a slow swim and a slow run are different problems, and one summed number cannot tell them apart.
+
+The running group is what a device records stride by stride during a run. These are the measurements that distinguish an effort that was slow because the athlete was unrecovered from one that was slow because form degraded late — a distinction any prediction about a run or a HYROX has to make.
+
+Walking asymmetry deserves a note: one foot moving at a different speed from the other is a plausible early sign of injury, and it trends over months.
 
 The `summary` and `n` are receipts, so an agent can judge coverage without opening the sidecar. Nothing is averaged or downsampled — the sidecar holds every sample the source contained.
 
@@ -368,9 +392,13 @@ Pioneered open JSON schemas for mobile health data points (IEEE 1752); strong on
 
 ## Appendix B — Importer mappings
 
-What `ath import` reads from each export, and what it deliberately does not. Unknown identifiers and clinical records are counted as skipped rather than guessed at.
+What `ath import` reads from each export, and what it deliberately does not.
+
+**Units are converted explicitly, never assumed.** A vendor's unit strings vary with locale and with the wearer's display settings, so the same identifier can arrive in miles or metres, Fahrenheit or Celsius, a fraction or a percentage. An unrecognized unit is a counted skip naming the identifier and the unit seen. It is never treated as though it were already canonical, because a skipped row is visible and gets fixed while a mile stored as a metre passes validation and quietly poisons a baseline.
 
 ### Apple Health `export.xml`
+
+Point measurements:
 
 | HealthKit identifier | Athletic Standard |
 |---|---|
@@ -379,23 +407,43 @@ What `ath import` reads from each export, and what it deliberately does not. Unk
 | `WalkingHeartRateAverage` | `walking_heart_rate` |
 | `HeartRateRecoveryOneMinute` | `hr_recovery` |
 | `RespiratoryRate` | `respiratory_rate` |
-| `BodyMass` | `body_weight` (lb → kg) |
+| `BodyMass` | `body_weight` |
+| `LeanBodyMass` | `lean_body_mass` |
+| `BodyFatPercentage` | `body_fat_percentage` |
+| `Height` | `height` |
 | `VO2Max` | `vo2_max` |
 | `AppleSleepingWristTemperature` | `wrist_temperature_sleeping` |
 | `BodyTemperature` | `body_temperature` |
-| `OxygenSaturation` | `oxygen_saturation` (fraction → %) |
-| `SleepAnalysis` | clustered into `sleep_session` |
-| `Workout` + `WorkoutEvent` laps | `workout_session` + `segments` |
-| `HeartRate` | `heart_rate` series |
-| `StepCount` | `steps` series |
-| `ActiveEnergyBurned` | `active_energy` series |
+| `OxygenSaturation` | `oxygen_saturation` |
+| `BloodPressureSystolic` / `BloodPressureDiastolic` | the two blood pressure types |
+
+Sessions: `SleepAnalysis` records cluster into `sleep_session`; `Workout` plus its `WorkoutEvent` laps becomes `workout_session` with `segments`.
+
+Series:
+
+| HealthKit identifier | Series quantity |
+|---|---|
+| `HeartRate` | `heart_rate` |
+| `StepCount` | `steps` |
+| `ActiveEnergyBurned` | `active_energy` |
+| `BasalEnergyBurned` | `basal_energy` |
+| `AppleExerciseTime` | `exercise_time` |
+| `PhysicalEffort` | `physical_effort` |
+| `FlightsClimbed` | `flights_climbed` |
 | `DistanceWalkingRunning` / `Cycling` / `Swimming` | three separate distance series |
+| `RunningSpeed` / `RunningPower` / `RunningStrideLength` / `RunningVerticalOscillation` / `RunningGroundContactTime` | the five running quantities |
+| `WalkingSpeed` / `WalkingStepLength` / `WalkingAsymmetryPercentage` | the three gait quantities |
+| `TimeInDaylight` | `time_in_daylight` |
+
+Skipped, each for a stated reason rather than for want of a name: diagnostic findings (atrial fibrillation burden, low-heart-rate events, walking steadiness), all audio exposure types, derived or goal values (body mass index, sleep duration goal), frailty-oriented mobility measures that stay near-constant for a trained athlete (double support percentage, stand time, stair speeds), clinical and FHIR-shaped records, ECG voltage, and any unrecognized identifier.
 
 **Beat lists.** Each SDNN record carries a `HeartRateVariabilityMetadataList` of instantaneous beat readings, roughly 60 seconds of them. Those become an `hrv_beats` series plus a derived `hrv_rmssd`. Without this, an Apple Watch wearer has no statistic comparable to WHOOP or Oura, because Apple publishes SDNN only.
 
-A 60-second window is enough for RMSSD: in athletes it agreed with the standard 5-minute measurement at ICC 0.98, and in 3,387 adults RMSSD from even a 10-second recording was a valid proxy (r = 0.86, rising to 0.94 averaged over three windows). SDNN needs longer windows and agrees worse at every length, which is why only RMSSD is derived.
+A short window is enough for RMSSD: in athletes a 60-second window agreed with the standard 5-minute measurement at ICC 0.98, and in 3,387 adults RMSSD from even a 10-second recording was a valid proxy (r = 0.86, rising to 0.94 averaged over three windows). SDNN needs longer windows and agrees worse at every length, which is why only RMSSD is derived.
 
-Guard rails: at least 20 usable intervals and a 30-second window, intervals outside 300–2000 ms discarded as implausible and counted, and no derived value at all when too little survives. A weak number that looks like a measurement is worse than no number.
+**Missed beats are excluded from the calculation, not just counted.** RMSSD is built from the difference between *successive* intervals. If the device failed to detect a beat, the intervals either side of the gap are not successive, and treating them as though they were invents a large difference — so a dropped beat would read as high variability, which is precisely backwards. Continuity is therefore checked against the timestamp on each beat, the sequence is split wherever the gap exceeds 1.5 times the interval the later beat reports, and pairs spanning a gap contribute nothing.
+
+Remaining guard rails: intervals outside 300–2000 ms are discarded as implausible and counted, at least 10 continuous pairs and a 10-second window are required, and no value is written at all when too little survives. A weak number that looks like a measurement is worse than no number.
 
 ### WHOOP standard CSV export
 
