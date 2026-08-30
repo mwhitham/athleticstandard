@@ -1,6 +1,6 @@
 # Getting Data Into Athletic Standard: The Connections Study
 
-**Researched August 2026.** Provider behavior changes; each section notes its sources. This is the living reference for what every connection path yields per provider and how Athletic Standard handles it. The governing decision is recorded in `build-history/v1/addendum-2-ingestion-principle.md`.
+**Researched August 2026.** Provider behavior changes; each section notes its sources. This is the living reference for what every connection path yields per provider and how Athletic Standard handles it. The governing decisions are D17–D22 in [`build-history/v1/decisions.md`](../build-history/v1/decisions.md).
 
 ## The principle
 

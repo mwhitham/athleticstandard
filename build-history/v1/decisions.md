@@ -1,6 +1,6 @@
 # Athletic Standard v1 — Decision Log
 
-The choices made during planning (2026-08-09 → 2026-08-10), with the alternatives that were considered and rejected. Recorded because the rejected options are the part everyone forgets.
+The choices made for v1, with the alternatives that were considered and rejected. Recorded because the rejected options are the part everyone forgets. New v1 decisions are appended here.
 
 ## D1. Product shape: an open file format + one reference agent, not an app
 
@@ -78,4 +78,80 @@ Final name unresolved (AthleteCapacity was clean everywhere including the .com b
 
 ## D13. Process: permanent build history
 
-Every plan's spec is written into `build-history/<version>/` before or as it is built, append-only, kept forever. This file and `spec.md` are v1's entry.
+Every plan's spec is written into `build-history/<version>/` before or as it is built. Within a version, all decisions go in that version's `decisions.md` — append new D-numbers, don't rewrite earlier ones. If a decision is superseded, append a new D that says so. A new version folder is only for a new plan (`v2/`). Don't split v1 decisions into addendum files.
+
+## D14. Positioning narrowed (2026-08-29)
+
+Before the build, the use case was checked against what the major labs shipped in 2026:
+
+- **OpenAI — ChatGPT Health** (July 2026): Apple Health, medical records, MyFitnessPal, Peloton, Function. Health data informs any conversation.
+- **Google — Health Coach** (May 2026): Fitbit app became Google Health; Gemini coach. Photo logging of meals and gym whiteboards. Requires Fitbit or Pixel Watch.
+- **Anthropic — Claude health connectors** (Jan 2026): Apple Health, Android Health Connect, Function, HealthEx.
+- **Apple:** killed the standalone AI health coach (Feb 2026); features shipping into the Health app instead.
+
+"Connect your wearable data to an AI and talk about it" is now a built-in ChatGPT and Claude feature. Athletic Standard must not be framed that way. Photo meal logging stays in the format (it has to represent it) but is not a differentiator.
+
+What still stands: write a prediction before the workout and record whether it was right; keep an open portable file; keep measured signals apart from self-reported ones, including named benchmarks.
+
+README must not lead with "chat with your fitness data."
+
+## D15. Apple Health export.zip is the first importer
+
+Both OpenAI and Anthropic standardized on Apple Health as the consumer aggregation hub — every wearable syncs into it. WHOOP/Oura CSVs second. Open Wearables remains the self-hosted roadmap path.
+
+## D16. Raw exports first, automation later
+
+- **Tier 1 (v1):** Apple Health "Export All Health Data" zip, WHOOP CSV, Oura CSV → `ath import`. No mobile app, no OAuth, no infra.
+- **Tier 2 (fast-follow):** WHOOP/Oura/Garmin cloud APIs via `ath pull` / Open Wearables connector. Still no mobile app.
+- **Tier 3 (deferred):** automatic Apple Health sync. HealthKit is on-device; Apple offers no cloud API, so this needs an iPhone app. Not v1, not fast-follow.
+
+## D17. Connect wearables directly (2026-08-29)
+
+Follow-up to D15/D16: WHOOP via Open Wearables has more data than WHOOP via Apple Health. Full study in [`docs/connections.md`](../../docs/connections.md).
+
+Every major wearable withholds its most useful recovery data from Apple Health, including HRV:
+
+- **WHOOP → Apple Health:** no HRV (RMSSD vs SDNN), no recovery score, no strain.
+- **Oura → Apple Health:** no HRV, no RHR, no readiness.
+- **Garmin → Apple Health:** no HRV, no RHR; workouts/sleep cross.
+- **Apple Watch:** the exception — its own data is complete in Apple Health.
+
+Users must be able to connect wearables directly. Apple Health is the complete source for Apple Watch data and incomplete for everything else. Per-signal `source` plus dedup by type/timestamp/source already lets multiple paths feed one file.
+
+## D18. The iOS app (v2) is for Apple Watch users
+
+It does not replace direct connections. For WHOOP/Oura wearers an Apple Health-only app would drop HRV and recovery. v2 automation is app-for-Watch plus direct API / Open Wearables for everyone else.
+
+## D19. Oura personal access token is in the fast-follow tier
+
+No OAuth app registration; long-lived pasted token.
+
+## D20. Garmin: weakest automated path
+
+The API needs approval. v1 advice: Apple Health export for workouts/sleep, accept the HRV gap. FIT importer is on the roadmap (also the source for run-split / HYROX segment analysis).
+
+## D21. Export files for v1
+
+A CSV or zip export has the data you need and costs nothing to set up. Connecting an API later is easier, not richer (Garmin excepted until the FIT importer ships). Per-device advice lives in `docs/connections.md`.
+
+## D22. SDNN and RMSSD never mix
+
+Apple measures HRV as SDNN, everyone else as RMSSD. The format types them separately (`hrv_sdnn` / `hrv_rmssd`). Baselines must never combine them.
+
+## D23. File extension is `.ath.json` (2026-08-29)
+
+Default filename `athlete.ath.json`, not `.athleticstandard.json`. Filenames are typed constantly; the extension matches the `ath` CLI; same idea as `typescript` → `.ts`. Collision risk of `*.ath.json` is negligible.
+
+The full `athleticstandard` name stays on identity surfaces: the npm package, the schema filename and `$id` URL (`athleticstandard.ai`), and the `athleticstandard_version` field inside the file.
+
+Supersedes the `.athleticstandard.json` extension used in `spec.md` §2.
+
+## D24. Say the rule in plain words (2026-08-30)
+
+Committed writing — SPEC, docs, comments, CLI copy, Skills, README, and this file — should read like an explanation to a teammate.
+
+- Short sentences. Ordinary words. State what the thing is and what it does.
+- No slogans. No metaphor used as if it were the rule. No antithesis wordplay (*an* vs *the*, "X is the pipe, Y is the document", "never a data upgrade").
+- Don't use "vibes", "bet", "scoreboard", "on-ramp", or "doctrine" as stand-ins for the actual idea.
+- Named principles are allowed when they name a real rule: "two-tier wall", "the file is the database", "not an app, not a coach, not medical advice". After the name, state the rule in ordinary words in the same paragraph.
+

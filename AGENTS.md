@@ -7,7 +7,7 @@ Athletic Standard: an open, local-first file format (`.ath.json`) for a function
 Read these before making decisions — they are the project's memory and outrank anything you infer:
 
 1. **`build-history/v1/spec.md`** — the approved build specification (architecture, file format, CLI surface, grading procedure, backtest design, build order in §12).
-2. **`build-history/v1/decisions.md` + addenda** — every decision with the alternatives that were rejected and why (D1 onward). Do not relitigate these without new information; if a decision changes, record it as a new addendum, never by editing history.
+2. **`build-history/v1/decisions.md`** — every v1 decision with the alternatives that were rejected and why (D1 onward). Do not relitigate these without new information; if a decision is superseded, append a new D-number in this file. Don't rewrite earlier entries. Don't create addendum files.
 3. **`build-history/v1/progress.md`** — what's done and what's next.
 4. **`docs/connections.md`** — per-provider data research (what WHOOP/Oura/Garmin/Apple Health each provide via which path).
 5. **`SPEC.md`** — the public field-level format reference. The Zod schemas in `src/schema.ts` are normative; the JSON Schema is generated from them.
@@ -15,7 +15,7 @@ Read these before making decisions — they are the project's memory and outrank
 ## Hard rules
 
 - **The two-tier wall:** device-measured (hard) and self-reported (soft) signals never mix. Hard signals require a `source` reference; soft signals structurally cannot claim one. Never weaken this.
-- **`build-history/` is append-only.** Every new plan's spec goes in a new versioned subfolder; existing entries are never rewritten.
+- **`build-history/` is append-only.** New plans get a new version folder (`v2/`). Within a version, append new decisions to `decisions.md`. Don't rewrite earlier D-numbers or earlier version folders.
 - **Schemas are the source of truth.** After changing `src/schema.ts`, run `pnpm generate:json-schema` and `pnpm generate:fixture` and commit the regenerated outputs.
 - **Naming:** "Athletic Standard" in prose; `athleticstandard` for the npm package, file extension, and version field; `ath` is the CLI command; `AthleticStandard` in code identifiers.
 - **Keep the repo impersonal:** no personal objectives, audience/positioning framing, or individual names in committed content.

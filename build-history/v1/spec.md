@@ -339,4 +339,4 @@ Each step lands as its own commit(s); the repo is coherent (builds, tests pass) 
 
 ## 13. Process rule: build history
 
-This folder (`build-history/`) permanently retains the spec and decision log for every plan we build, versioned (`v1/`, `v2/`, …), append-only, kept forever. Future plans must write their spec here before or as they are built. See `build-history/README.md`.
+This folder (`build-history/`) permanently retains the spec and decision log for every plan we build, versioned (`v1/`, `v2/`, …). Within a version, decisions are appended to `decisions.md`. Future plans must write their spec here before or as they are built. See `build-history/README.md`.
