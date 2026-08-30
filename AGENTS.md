@@ -7,10 +7,11 @@ Athletic Standard: an open, local-first file format (`.ath.json`) for a function
 Read these before making decisions — they are the project's memory and outrank anything you infer:
 
 1. **`build-history/v1/spec.md`** — the approved build specification (architecture, file format, CLI surface, grading procedure, backtest design, build order in §12).
-2. **`build-history/v1/decisions.md`** — every v1 decision with the alternatives that were rejected and why (D1 onward). Do not relitigate these without new information; if a decision is superseded, append a new D-number in this file. Don't rewrite earlier entries. Don't create addendum files. Supporting research lives in `build-history/v1/appendix/` and is linked from the D-number.
-3. **`build-history/v1/progress.md`** — what's done and what's next.
-4. **`docs/connections.md`** — per-provider data research (what WHOOP/Oura/Garmin/Apple Health each provide via which path).
-5. **`SPEC.md`** — the public field-level format reference. The Zod schemas in `src/schema.ts` are normative; the JSON Schema is generated from them.
+2. **`build-history/v1/decisions.md`** — every v1 decision with the alternatives that were rejected and why (D1 onward). Do not relitigate these without new information; if a decision is superseded, append a new D-number in this file. Don't rewrite earlier entries. Don't create addendum files.
+3. **`build-history/v1/appendix/`** — the long-form studies that informed decisions (pressure test, connections). Linked from the D-number. Do not move the decision into the appendix, and do not trim the study down to the decision line.
+4. **`build-history/v1/progress.md`** — what's done and what's next.
+5. **`docs/connections.md`** — per-provider data research (what WHOOP/Oura/Garmin/Apple Health each provide via which path).
+6. **`SPEC.md`** — the public field-level format reference. The Zod schemas in `src/schema.ts` are normative; the JSON Schema is generated from them.
 
 ## Hard rules
 

@@ -1,6 +1,6 @@
 # Frontier-lab pressure test (2026-08-23 → 2026-08-29)
 
-Informed **D14–D16**. The decisions themselves are in [`../decisions.md`](../decisions.md).
+The study that informed **D14–D16**. Decisions are in [`../decisions.md`](../decisions.md). This is the write-up, not a substitute for the log.
 
 Before starting the build, the use case was pressure-tested against what the major labs shipped in 2026.
 
@@ -25,3 +25,12 @@ Before starting the build, the use case was pressure-tested against what the maj
 ## Grading procedure, restated
 
 Write the prediction before the workout, then record whether it was right. Result inside the predicted range → one-line record, done. Outside the range → the agent must explain the miss using only evidence recorded in the file (sleep, HRV, reported soreness); if nothing explains it, it must say "unexplained" and ask the user one question rather than invent a cause. Each miss ends in a one-sentence lesson shown to the agent at the next prediction. The accumulated graded ledger is the product's core artifact — the thing no lab product will ever show.
+
+## What this produced
+
+- **D14.** Positioning is the three legs above. README must not lead with "chat with your fitness data."
+- **D15.** Apple Health export.zip is the first-class, first-built importer. Both OpenAI and Anthropic standardized on Apple Health as the consumer aggregation hub — every wearable syncs into it. WHOOP/Oura CSVs second. Open Wearables remains the self-hosted roadmap path.
+- **D16.** Raw data first, automation later:
+  - **Tier 1 (v1): raw exports.** Apple Health "Export All Health Data" zip, WHOOP CSV, Oura CSV → `ath import`. No mobile app, no OAuth, no infra.
+  - **Tier 2 (fast-follow): automatic cloud sync.** WHOOP/Oura/Garmin cloud APIs via `ath pull` / Open Wearables connector. Server-side; still no mobile app.
+  - **Tier 3 (future, explicitly deferred): automatic Apple Health sync.** The only path that inherently requires an iPhone app (HealthKit is on-device; Apple offers no cloud API — this is why Open Wearables ships a mobile SDK). If ever wanted: lean on OW's SDK or a minimal companion app. Not v1, not fast-follow.

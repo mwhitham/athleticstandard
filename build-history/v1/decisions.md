@@ -78,61 +78,69 @@ Final name unresolved (AthleteCapacity was clean everywhere including the .com b
 
 ## D13. Process: permanent build history
 
-Every plan's spec is written into `build-history/<version>/` before or as it is built. Within a version, all decisions go in that version's `decisions.md` — append new D-numbers, don't rewrite earlier ones. If a decision is superseded, append a new D that says so. Supporting research goes in `appendix/` in the same version folder and is linked from the D-number. A new version folder is only for a new plan (`v2/`). Don't create addendum files.
+Every plan's spec is written into `build-history/<version>/` before or as it is built. Within a version, all decisions go in that version's `decisions.md` — append new D-numbers, don't rewrite earlier ones. If a decision is superseded, append a new D that says so. Supporting research — the long write-up, not a restatement of the D-number — goes in `appendix/` in the same version folder and is linked from the decision. A new version folder is only for a new plan (`v2/`). Don't create addendum files.
 
 ## D14. Positioning narrowed (2026-08-29)
 
-Positioning is the three remaining legs in [appendix/pressure-test.md](appendix/pressure-test.md): a prediction written before the workout and graded after; an open portable file; measured signals kept apart from self-reported ones, including named benchmarks. README must not lead with "chat with your fitness data."
+Before the build, the use case was checked against what the major labs shipped in 2026:
+
+- **OpenAI — ChatGPT Health** (July 2026): Apple Health, medical records, MyFitnessPal, Peloton, Function. Health data informs any conversation.
+- **Google — Health Coach** (May 2026): Fitbit app became Google Health; Gemini coach. Photo logging of meals and gym whiteboards. Requires Fitbit or Pixel Watch.
+- **Anthropic — Claude health connectors** (Jan 2026): Apple Health, Android Health Connect, Function, HealthEx.
+- **Apple:** killed the standalone AI health coach (Feb 2026); features shipping into the Health app instead.
+
+"Connect your wearable data to an AI and talk about it" is now a built-in ChatGPT and Claude feature. Athletic Standard must not be framed that way. Photo meal logging stays in the format (it has to represent it) but is not a differentiator.
+
+What still stands: write a prediction before the workout and record whether it was right; keep an open portable file; keep measured signals apart from self-reported ones, including named benchmarks.
+
+README must not lead with "chat with your fitness data."
+
+Full write-up: [appendix/pressure-test.md](appendix/pressure-test.md).
 
 ## D15. Apple Health export.zip is the first importer
 
 Both OpenAI and Anthropic standardized on Apple Health as the consumer aggregation hub — every wearable syncs into it. WHOOP/Oura CSVs second. Open Wearables remains the self-hosted roadmap path.
 
-Detail: [appendix/pressure-test.md](appendix/pressure-test.md).
-
 ## D16. Raw exports first, automation later
 
-- **Tier 1 (v1): raw exports.** Apple Health "Export All Health Data" zip, WHOOP CSV, Oura CSV → `ath import`. No mobile app, no OAuth, no infra.
-- **Tier 2 (fast-follow): automatic cloud sync.** WHOOP/Oura/Garmin cloud APIs via `ath pull` / Open Wearables connector. Server-side; still no mobile app.
-- **Tier 3 (deferred): automatic Apple Health sync.** The only path that inherently requires an iPhone app (HealthKit is on-device; Apple offers no cloud API — this is why Open Wearables ships a mobile SDK). If ever wanted: lean on OW's SDK or a minimal companion app. Not v1, not fast-follow.
-
-Detail: [appendix/pressure-test.md](appendix/pressure-test.md).
+- **Tier 1 (v1):** Apple Health "Export All Health Data" zip, WHOOP CSV, Oura CSV → `ath import`. No mobile app, no OAuth, no infra.
+- **Tier 2 (fast-follow):** WHOOP/Oura/Garmin cloud APIs via `ath pull` / Open Wearables connector. Still no mobile app.
+- **Tier 3 (deferred):** automatic Apple Health sync. HealthKit is on-device; Apple offers no cloud API, so this needs an iPhone app. Not v1, not fast-follow.
 
 ## D17. Connect wearables directly (2026-08-29)
 
+Follow-up to D15/D16: WHOOP via Open Wearables has more data than WHOOP via Apple Health.
+
+Every major wearable withholds its most useful recovery data from Apple Health, including HRV:
+
+- **WHOOP → Apple Health:** no HRV (RMSSD vs SDNN), no recovery score, no strain.
+- **Oura → Apple Health:** no HRV, no RHR, no readiness.
+- **Garmin → Apple Health:** no HRV, no RHR; workouts/sleep cross.
+- **Apple Watch:** the exception — its own data is complete in Apple Health.
+
 Users must be able to connect wearables directly. Apple Health is the complete source for Apple Watch data and incomplete for everything else. Per-signal `source` plus dedup by type/timestamp/source already lets multiple paths feed one file.
 
-Detail: [appendix/direct-connections.md](appendix/direct-connections.md). Living per-provider tables: [`docs/connections.md`](../../docs/connections.md).
+Full write-up: [appendix/connections.md](appendix/connections.md). Living tables: [`docs/connections.md`](../../docs/connections.md).
 
 ## D18. The iOS app (v2) is for Apple Watch users
 
 It does not replace direct connections. For WHOOP/Oura wearers an Apple Health-only app would drop HRV and recovery. v2 automation is app-for-Watch plus direct API / Open Wearables for everyone else.
 
-Detail: [appendix/direct-connections.md](appendix/direct-connections.md).
-
 ## D19. Oura personal access token is in the fast-follow tier
 
 No OAuth app registration; long-lived pasted token.
-
-Detail: [appendix/direct-connections.md](appendix/direct-connections.md).
 
 ## D20. Garmin: weakest automated path
 
 The API needs approval. v1 advice: Apple Health export for workouts/sleep, accept the HRV gap. FIT importer is on the roadmap (also the source for run-split / HYROX segment analysis).
 
-Detail: [appendix/direct-connections.md](appendix/direct-connections.md).
-
 ## D21. Export files for v1
 
 A CSV or zip export has the data you need and costs nothing to set up. Connecting an API later is easier, not richer (Garmin excepted until the FIT importer ships). Per-device advice lives in `docs/connections.md`.
 
-Detail: [appendix/direct-connections.md](appendix/direct-connections.md).
-
 ## D22. SDNN and RMSSD never mix
 
 Apple measures HRV as SDNN, everyone else as RMSSD. The format types them separately (`hrv_sdnn` / `hrv_rmssd`). Baselines must never combine them.
-
-Detail: [appendix/direct-connections.md](appendix/direct-connections.md).
 
 ## D23. File extension is `.ath.json` (2026-08-29)
 

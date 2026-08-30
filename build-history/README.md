@@ -14,11 +14,11 @@ build-history/
     spec.md        # the full build specification for v1
     decisions.md   # the decision log: what was chosen, what was rejected, and why
     progress.md    # what's done and what's next
-    appendix/      # research that informed decisions; linked from D-numbers
+    appendix/      # long-form research those decisions rest on; linked from D-numbers
   v2/              # (future) next plan's spec, decisions, and appendix
   ...
 ```
 
 ## Why
 
-Specs written in chat threads and planning sessions evaporate. Six months from now, "why is there no MCP server?" or "why TypeScript?" should be answerable by reading this folder, not by archaeology. Each version's `decisions.md` records the alternatives that were considered and rejected, because the rejected options are the part everyone forgets. The appendix keeps the study that led there, so the decision log can stay short without throwing the evidence away.
+Specs written in chat threads and planning sessions evaporate. Six months from now, "why is there no MCP server?" or "why TypeScript?" should be answerable by reading this folder, not by archaeology. Each version's `decisions.md` records the alternatives that were considered and rejected, because the rejected options are the part everyone forgets. Each version's `appendix/` holds the long-form research those decisions rest on.

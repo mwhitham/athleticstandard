@@ -1,6 +1,8 @@
 # Getting Data Into Athletic Standard: The Connections Study
 
-**Researched August 2026.** Provider behavior changes; each section notes its sources. This is the living reference for what every connection path yields per provider and how Athletic Standard handles it. The governing decisions are D17–D22 in [`build-history/v1/decisions.md`](../build-history/v1/decisions.md). The frozen study those decisions rest on is [`build-history/v1/appendix/connections.md`](../build-history/v1/appendix/connections.md).
+Frozen copy of the August 2026 study that informed **D17–D22**. Decisions are in [`../decisions.md`](../decisions.md). The living per-provider tables stay in [`docs/connections.md`](../../../docs/connections.md); update those if a vendor changes, and leave this file as the record of what the v1 decisions were based on.
+
+**Researched August 2026.** Provider behavior changes; each section notes its sources.
 
 ## The principle
 
