@@ -4,7 +4,7 @@
 
 ## The principle
 
-**Apple Health is *an* on-ramp, not *the* on-ramp.** Every major wearable withholds its most valuable recovery data from Apple Health — universally including HRV, the signal Athletic Standard's predictions lean on hardest. The deepest data for each device lives behind that vendor's own connection (export file or API). Athletic Standard must therefore let users connect wearables **directly**, and treat Apple Health as one source among several — excellent for Apple Watch's own data, lossy as a relay for everyone else's.
+Every major wearable withholds its most valuable recovery data from Apple Health — universally including HRV, the signal Athletic Standard's predictions lean on hardest. The deepest data for each device lives behind that vendor's own connection (export file or API). Athletic Standard must therefore let users connect wearables **directly**, and treat Apple Health as one source among several — complete for Apple Watch's own data, incomplete for everyone else's.
 
 Structurally this is already supported: every hard signal carries a `source` reference (vendor + kind), and imports deduplicate by (type, timestamp, source), so multiple paths can feed one file without double-counting — e.g. workouts via Apple Health and recovery data via WHOOP's CSV.
 

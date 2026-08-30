@@ -15,7 +15,7 @@ The deep data lives behind each vendor's own connection: WHOOP API v2 (`hrv_rmss
 
 ## Decisions
 
-- **D17. Direct-connection principle.** Apple Health is *an* on-ramp, not *the* on-ramp. The architecture must let users connect wearables directly; Apple Health is treated as the complete source for Apple Watch data and a lossy relay for everything else. (Already structurally supported: per-signal `source` provenance + dedup by type/timestamp/source lets multiple paths feed one file.)
+- **D17. Direct-connection principle.** The architecture must let users connect wearables directly. Apple Health is the complete source for Apple Watch data and incomplete for everything else. (Already structurally supported: per-signal `source` provenance + dedup by type/timestamp/source lets multiple paths feed one file.)
 - **D18. The iOS app (v2) serves Apple Watch users; it does not replace direct connections.** Corrects the earlier framing that the app could displace Open Wearables: for WHOOP/Oura wearers it would silently lose HRV/recovery. v2 automation is app-for-Watch + direct-API/OW-for-others.
 - **D19. Oura direct pull via personal access token** is added to the fast-follow tier (uniquely easy: no OAuth app registration; long-lived pasted token).
 - **D20. Garmin honesty.** Weakest automated story (API needs approval). v1 advice: Apple Health export for workouts/sleep, accept the HRV gap; FIT importer on the roadmap (also the data source for run-split/HYROX segment analysis).
