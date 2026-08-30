@@ -6,8 +6,29 @@
   "homepage": "https://athleticstandard.ai",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mwhitham/athleticstandard.git"
+    "url": "git+https://github.com/mwhitham/athleticstandard.git"
   },
+  "bugs": {
+    "url": "https://github.com/mwhitham/athleticstandard/issues"
+  },
+  "keywords": [
+    "athletic-standard",
+    "file-format",
+    "json-schema",
+    "training",
+    "recovery",
+    "hrv",
+    "wearables",
+    "whoop",
+    "oura",
+    "apple-health",
+    "crossfit",
+    "hyrox",
+    "triathlon",
+    "local-first",
+    "ai-agents"
+  ],
+
   "type": "module",
   "engines": {
     "node": ">=20"

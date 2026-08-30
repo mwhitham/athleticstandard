@@ -2,3 +2,8 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# Personal athlete files created by `ath init` in the repo root.
+# The demo fixture in examples/ is intentionally tracked, so this is root-only.
+/*.ath.json
+
