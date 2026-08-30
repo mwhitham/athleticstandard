@@ -92,8 +92,10 @@ export function normalizeOffset(offset: string | undefined): string | null {
   if (trimmed === "Z" || /^(UTC|GMT)$/i.test(trimmed)) return "Z";
 
   // Strip a leading UTC/GMT, which is decoration around the offset itself.
+  // WHOOP writes plain `UTCZ` for the occasional row it recorded in UTC, which
+  // shows up around daylight-saving transitions.
   const bare = trimmed.replace(/^(UTC|GMT)\s*/i, "");
-  if (bare === "" || /^[+-]00:?00$/.test(bare)) return "Z";
+  if (bare === "" || bare === "Z" || bare === "z" || /^[+-]00:?00$/.test(bare)) return "Z";
 
   const m = /^([+-])(\d{1,2}):?(\d{2})$/.exec(bare);
   if (!m) return null;

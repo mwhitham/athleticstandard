@@ -21,6 +21,10 @@ describe("normalizeOffset", () => {
     expect(normalizeOffset("UTC")).toBe("Z");
     expect(normalizeOffset("GMT")).toBe("Z");
     expect(normalizeOffset("UTC+00:00")).toBe("Z");
+    expect(normalizeOffset("UTC-00:00")).toBe("Z");
+    // WHOOP writes `UTCZ` for rows it recorded in UTC, seen around daylight-saving
+    // transitions where the local offset is ambiguous.
+    expect(normalizeOffset("UTCZ")).toBe("Z");
   });
 
   it("refuses what it cannot read rather than guessing", () => {

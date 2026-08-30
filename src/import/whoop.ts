@@ -240,12 +240,16 @@ function importJournal(rows: Row[], payload: ImportPayload): void {
     const reportedAt = withOffset(cell(row, "Cycle end time", "Cycle start time"), offset);
     const question = cell(row, "Question text", "question_text");
     if (!reportedAt || !question) {
+      // Without a timestamp there is nowhere in time to put the answer, and a
+      // soft signal must be dated to be worth anything.
       countSkipWithExample(
         payload,
-        "journal rows missing a question or timestamp",
-        question
-          ? describeTime(cell(row, "Cycle end time", "Cycle start time"), offset)
-          : "no question text column",
+        "journal rows we cannot place in time",
+        !question
+          ? "row has no question text"
+          : cell(row, "Cycle end time", "Cycle start time") === undefined
+            ? "row has neither a cycle start nor end time"
+            : describeTime(cell(row, "Cycle end time", "Cycle start time"), offset),
       );
       continue;
     }
