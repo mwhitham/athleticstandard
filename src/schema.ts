@@ -152,9 +152,12 @@ export const Score = z
     reps: z.number().int().positive().optional().describe("For score_type=reps"),
     weight_kg: z.number().positive().optional().describe("For score_type=load"),
   })
-  .refine((s) => s.duration_s !== undefined || s.reps !== undefined || s.weight_kg !== undefined, {
-    message: "A score must contain at least one of duration_s, reps, weight_kg",
-  });
+  .refine(
+    (s) => [s.duration_s, s.reps, s.weight_kg].filter((v) => v !== undefined).length === 1,
+    {
+      message: "A score must contain exactly one of duration_s, reps, weight_kg",
+    },
+  );
 
 /**
  * A benchmark result is measured fact even when hand-entered — but its source

@@ -1,12 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const CLI = resolve(__dirname, "../src/cli.ts");
-const TSX = resolve(__dirname, "../node_modules/.bin/tsx");
-const FIXTURE = resolve(__dirname, "../examples/demo-athlete/athlete.ath.json");
+const here = dirname(fileURLToPath(import.meta.url));
+const CLI = resolve(here, "../src/cli.ts");
+const TSX = resolve(here, "../node_modules/.bin/tsx");
+const FIXTURE = resolve(here, "../examples/demo-athlete/athlete.ath.json");
 
 function ath(args: string[], cwd: string): { stdout: string; code: number } {
   try {

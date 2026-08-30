@@ -118,6 +118,13 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
       err(`${path}.benchmark`, `unknown benchmark '${p.benchmark}'`);
     } else {
       checkScoreMatchesBenchmark(`${path}.predicted`, p.benchmark, p.predicted);
+      if (p.range) {
+        checkScoreMatchesBenchmark(`${path}.range.low`, p.benchmark, p.range.low);
+        checkScoreMatchesBenchmark(`${path}.range.high`, p.benchmark, p.range.high);
+      }
+      if (p.actual) {
+        checkScoreMatchesBenchmark(`${path}.actual.result`, p.benchmark, p.actual.result);
+      }
     }
 
     if (Date.parse(p.evidence_window.from) > Date.parse(p.evidence_window.to)) {

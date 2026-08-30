@@ -23,6 +23,9 @@ function sd(xs: number[], m: number): number {
 
 const day = (ts: string) => ts.slice(0, 10);
 
+/** Instant in milliseconds. Offset timestamps cannot be ordered as strings. */
+const instant = (ts: string): number => Date.parse(ts);
+
 /** Mean/sd of a point-measurement type over the trailing `windowDays` of data. */
 export function baselineFor(
   file: AthleticStandardFileT,
@@ -34,17 +37,19 @@ export function baselineFor(
       "value" in s && s.type === type,
   );
   if (points.length === 0) return null;
-  const latest = points.reduce((a, b) => (a.recorded_at > b.recorded_at ? a : b));
-  const cutoff = new Date(Date.parse(latest.recorded_at) - windowDays * 86400_000).toISOString();
-  const windowed = points.filter((p) => p.recorded_at >= cutoff);
-  const values = windowed.map((p) => p.value);
+  const dated = points.map((p) => ({ point: p, t: instant(p.recorded_at) }));
+  const latest = dated.reduce((a, b) => (a.t >= b.t ? a : b));
+  const cutoff = latest.t - windowDays * 86400_000;
+  const windowed = dated.filter((p) => p.t >= cutoff);
+  const earliest = windowed.reduce((a, b) => (a.t <= b.t ? a : b));
+  const values = windowed.map((p) => p.point.value);
   const m = mean(values);
   return {
     mean: Math.round(m * 10) / 10,
     sd: Math.round(sd(values, m) * 10) / 10,
     n: windowed.length,
-    from: day(windowed[0]!.recorded_at),
-    to: day(latest.recorded_at),
+    from: day(earliest.point.recorded_at),
+    to: day(latest.point.recorded_at),
   };
 }
 
@@ -55,7 +60,7 @@ export function renderStats(file: AthleticStandardFileT): string {
   const timestamps = [
     ...file.hard_signals.map((s) => ("recorded_at" in s ? s.recorded_at : s.start)),
     ...file.soft_signals.map((s) => s.reported_at),
-  ].sort();
+  ].sort((a, b) => instant(a) - instant(b));
   const range =
     timestamps.length > 0
       ? `${day(timestamps[0]!)} → ${day(timestamps[timestamps.length - 1]!)}`

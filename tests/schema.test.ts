@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AthleticStandardFile, ATHLETIC_STANDARD_VERSION, type AthleticStandardFileT } from "../src/schema.js";
+import { AthleticStandardFile, ATHLETIC_STANDARD_VERSION, Score, type AthleticStandardFileT } from "../src/schema.js";
 import { validateAthleticStandardFile } from "../src/validate.js";
 
 function minimalFile(): AthleticStandardFileT {
@@ -187,6 +187,24 @@ describe("referential integrity", () => {
   });
 });
 
+describe("score shape", () => {
+  it("accepts exactly one of duration_s, reps, or weight_kg", () => {
+    expect(Score.safeParse({ duration_s: 281 }).success).toBe(true);
+    expect(Score.safeParse({ reps: 90 }).success).toBe(true);
+    expect(Score.safeParse({ weight_kg: 100 }).success).toBe(true);
+  });
+
+  it("rejects a score with no fields", () => {
+    expect(Score.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects a score that carries more than one field", () => {
+    expect(Score.safeParse({ duration_s: 281, reps: 90 }).success).toBe(false);
+    expect(Score.safeParse({ duration_s: 281, weight_kg: 100 }).success).toBe(false);
+    expect(Score.safeParse({ reps: 90, weight_kg: 100 }).success).toBe(false);
+  });
+});
+
 describe("prediction ledger honesty", () => {
   it("flags an actual recorded before the prediction was made", () => {
     const file = minimalFile();
@@ -220,6 +238,25 @@ describe("prediction ledger honesty", () => {
     const result = validateAthleticStandardFile(file);
     expect(result.valid).toBe(false);
     expect(result.issues.some((i) => i.message.includes("unexplained"))).toBe(true);
+  });
+
+  it("flags a prediction range that does not match the benchmark score type", () => {
+    const file = minimalFile();
+    file.predictions[0]!.range = { low: { reps: 10 }, high: { duration_s: 290 } };
+    const result = validateAthleticStandardFile(file);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((i) => i.path === "predictions.0.range.low")).toBe(true);
+  });
+
+  it("flags a prediction actual that does not match the benchmark score type", () => {
+    const file = minimalFile();
+    file.predictions[0]!.actual = {
+      result: { reps: 90 },
+      recorded_at: "2026-08-10T17:00:00Z",
+    };
+    const result = validateAthleticStandardFile(file);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((i) => i.path === "predictions.0.actual.result")).toBe(true);
   });
 
   it("accepts a fully graded miss with an honest analysis", () => {
