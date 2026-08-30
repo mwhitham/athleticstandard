@@ -501,6 +501,7 @@ export type BenchmarkT = z.infer<typeof Benchmark>;
 export type PredictionT = z.infer<typeof Prediction>;
 export type ScoreT = z.infer<typeof Score>;
 export type PointMeasurementT = z.infer<typeof PointMeasurement>;
+export type SoftSignalTypeT = z.infer<typeof SoftSignalType>;
 export type SeriesRefT = z.infer<typeof SeriesRef>;
 export type SeriesFileT = z.infer<typeof SeriesFile>;
 export type VendorScoreT = z.infer<typeof VendorScore>;

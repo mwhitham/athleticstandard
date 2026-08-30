@@ -9,10 +9,17 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { ATHLETIC_STANDARD_VERSION, type AthleticStandardFileT } from "./schema.js";
-import { validateAthleticStandardFile } from "./validate.js";
+import {
+  validateAthleticStandardFile,
+  type ValidationIssue,
+  type ValidationResult,
+} from "./validate.js";
 import { findFile, loadFile, loadFileRaw, saveFile, DEFAULT_FILENAME } from "./file.js";
 import { SEED_BENCHMARKS } from "./benchmarks.js";
 import { renderStats } from "./stats.js";
+import { checkSeriesRef } from "./series.js";
+import { importExport, UnknownExportError } from "./import/index.js";
+import { renderMergeSummary } from "./import/merge.js";
 
 const program = new Command();
 
@@ -84,13 +91,14 @@ program
   .action((fileArg) => {
     const path = findOrFail(fileArg);
     const result = validateAthleticStandardFile(loadFileRaw(path));
-    const errors = result.issues.filter((i) => i.severity === "error");
-    const warnings = result.issues.filter((i) => i.severity === "warning");
+    const issues = [...result.issues, ...seriesIssues(path, result)];
+    const errors = issues.filter((i) => i.severity === "error");
+    const warnings = issues.filter((i) => i.severity === "warning");
 
     for (const i of errors) console.error(`error  ${i.path}: ${i.message}`);
     for (const i of warnings) console.warn(`warn   ${i.path}: ${i.message}`);
 
-    if (!result.valid) {
+    if (errors.length > 0) {
       console.error(`\n${path}: INVALID — ${errors.length} error(s), ${warnings.length} warning(s)`);
       process.exit(1);
     }
@@ -101,6 +109,42 @@ program
   });
 
 program
+  .command("import")
+  .description("load an Apple Health, WHOOP, or Oura export into the file")
+  .argument("<path>", "the export: a zip, a folder, an export.xml, or a CSV")
+  .option("--file <path>", "athlete file to import into (default: the one in this directory)")
+  .action(async (exportPath: string, opts: { file?: string }) => {
+    const athletePath = findOrFail(opts.file);
+    let file: AthleticStandardFileT;
+    try {
+      file = loadFile(athletePath);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+
+    let result;
+    try {
+      result = await importExport(file, athletePath, resolve(process.cwd(), exportPath));
+    } catch (e) {
+      if (e instanceof UnknownExportError) return fail((e as Error).message);
+      return fail(`could not read that export: ${(e as Error).message}`);
+    }
+
+    // Refuse to write a file the import would have made invalid.
+    const validation = validateAthleticStandardFile(file);
+    if (!validation.valid) {
+      const first = validation.issues.filter((i) => i.severity === "error").slice(0, 5);
+      return fail(
+        `import would produce an invalid file, so nothing was written:\n` +
+          first.map((i) => `  ${i.path}: ${i.message}`).join("\n"),
+      );
+    }
+
+    saveFile(athletePath, file);
+    console.log(renderMergeSummary(result.summary, result.label));
+  });
+
+program
   .command("stats")
   .description("summarize the file: counts, date ranges, baselines")
   .argument("[file]", "path to the file (default: the one in this directory)")
@@ -108,6 +152,60 @@ program
     const path = findOrFail(fileArg);
     console.log(renderStats(loadFile(path)));
   });
+
+/**
+ * Verify every sidecar series the document points at (D25).
+ *
+ * A missing sidecar is a warning: the document must stay usable when it travels
+ * without them. A hash or count mismatch is an error, because a file edited
+ * underneath its receipts is worse than one that is simply absent.
+ */
+function seriesIssues(path: string, result: ValidationResult): ValidationIssue[] {
+  if (!result.valid) return [];
+
+  let file: AthleticStandardFileT;
+  try {
+    file = loadFile(path);
+  } catch {
+    return [];
+  }
+
+  const issues: ValidationIssue[] = [];
+  file.hard_signals.forEach((sig, i) => {
+    if (sig.type !== "series_ref") return;
+    const at = `hard_signals.${i}`;
+    const check = checkSeriesRef(path, sig);
+    switch (check.status) {
+      case "ok":
+        break;
+      case "missing":
+        issues.push({
+          severity: "warning",
+          path: `${at}.file`,
+          message: `sidecar not found: ${sig.file} — the document is still readable, but ${sig.n} samples are not here`,
+        });
+        break;
+      case "hash_mismatch":
+        issues.push({
+          severity: "error",
+          path: `${at}.sha256`,
+          message: `${sig.file} does not match its recorded hash (${check.detail}) — it was changed after import`,
+        });
+        break;
+      case "count_mismatch":
+        issues.push({ severity: "error", path: `${at}.n`, message: `${sig.file}: ${check.detail}` });
+        break;
+      case "unreadable":
+        issues.push({
+          severity: "error",
+          path: `${at}.file`,
+          message: `${sig.file} could not be read as a series file: ${check.detail}`,
+        });
+        break;
+    }
+  });
+  return issues;
+}
 
 function findOrFail(fileArg?: string): string {
   try {

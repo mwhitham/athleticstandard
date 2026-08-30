@@ -63,8 +63,17 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
       err(`${path}.source`, `unknown source '${sig.source}' — every hard signal needs provenance`);
     }
     if ("start" in sig && "end" in sig) {
-      if (Date.parse(sig.end) <= Date.parse(sig.start)) {
-        err(`${path}`, `session end (${sig.end}) is not after start (${sig.start})`);
+      // A series spanning a single sample has end == start, which is honest.
+      // A session that begins and ends at the same instant did not happen.
+      const zeroLengthAllowed = sig.type === "series_ref";
+      const span = Date.parse(sig.end) - Date.parse(sig.start);
+      if (span < 0 || (span === 0 && !zeroLengthAllowed)) {
+        err(
+          `${path}`,
+          zeroLengthAllowed
+            ? `series end (${sig.end}) precedes start (${sig.start})`
+            : `session end (${sig.end}) is not after start (${sig.start})`,
+        );
       }
     }
     if (sig.type === "benchmark_result") {

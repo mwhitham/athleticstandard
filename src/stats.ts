@@ -127,7 +127,9 @@ export function renderStats(file: AthleticStandardFileT): string {
     }
     lines.push("sample series (stored alongside the file):");
     for (const [key, { days, samples }] of [...byQuantity].sort()) {
-      lines.push(`  ${key}: ${samples} samples across ${days} day${days === 1 ? "" : "s"}`);
+      lines.push(
+        `  ${key}: ${samples} sample${samples === 1 ? "" : "s"} across ${days} day${days === 1 ? "" : "s"}`,
+      );
     }
     lines.push("");
   }
