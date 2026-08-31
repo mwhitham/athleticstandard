@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { AthleticStandardFileT } from "../src/schema.js";
+import { readSeriesDay, seriesDayFiles } from "../src/series.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(here, "../src/cli.ts");
@@ -45,6 +46,23 @@ function seriesOf(file: AthleticStandardFileT, quantity: string) {
     (s): s is Extract<typeof s, { type: "series_ref" }> =>
       s.type === "series_ref" && s.quantity === quantity,
   );
+}
+
+/**
+ * The values actually written to disk for a quantity.
+ *
+ * Unit conversions are asserted against these rather than against a summary in the
+ * document, because this is where the converted number really lands.
+ */
+function samplesOf(dir: string, quantity: string, source = "apple-1"): number[] {
+  const athleteFile = join(dir, "athlete.ath.json");
+  return seriesDayFiles(athleteFile, quantity, source).flatMap(
+    ({ day }) => readSeriesDay(athleteFile, quantity, source, day)?.map((s) => s.value) ?? [],
+  );
+}
+
+function meanOf(values: number[]): number {
+  return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
 function vendorScoresOf(file: AthleticStandardFileT, metric: string) {
@@ -108,16 +126,18 @@ describe("ath import — Apple Health", () => {
 
   it("splits distance by modality so a triathlete's disciplines stay apart (D29)", () => {
     // 1.24 mi, 14.2 km, and 1200 yd in three separate series.
-    expect(seriesOf(file, "distance_walking_running")[0]!.summary.mean).toBeCloseTo(1995.59, 1);
-    expect(seriesOf(file, "distance_cycling")[0]!.summary.mean).toBeCloseTo(14200, 1);
-    expect(seriesOf(file, "distance_swimming")[0]!.summary.mean).toBeCloseTo(1097.28, 1);
+    expect(samplesOf(dir, "distance_walking_running")[0]).toBeCloseTo(1995.59, 1);
+    expect(samplesOf(dir, "distance_cycling")[0]).toBeCloseTo(14200, 1);
+    expect(samplesOf(dir, "distance_swimming")[0]).toBeCloseTo(1097.28, 1);
   });
 
   it("sends dense samples to sidecars rather than the document", () => {
     const beats = seriesOf(file, "hrv_beats");
     expect(beats).toHaveLength(1);
     expect(beats[0]!.n).toBe(69);
-    expect(beats[0]!.file).toMatch(/^series\/2026-08-09-hrv_beats-apple-1\.ath\.series\.json$/);
+    expect(seriesDayFiles(join(dir, "athlete.ath.json"), "hrv_beats", "apple-1")).toEqual([
+      { day: "2026-08-09", file: "series/2026-08-09-hrv_beats-apple-1.ath.series.json" },
+    ]);
 
     // The samples are on disk, not inline.
     const raw = readFileSync(join(dir, "athlete.ath.json"), "utf8");
@@ -150,39 +170,43 @@ describe("ath import — Apple Health", () => {
   });
 
   it("summarizes series by quantity rather than one line per file", () => {
-    // Years of data means thousands of sidecars. A per-file list floods the
-    // terminal with output nobody reads.
-    expect(output).toMatch(/wrote \d+ series files to series\/:/);
+    // Years of data means thousands of sidecars. The count of files written is one
+    // line, and the detail below it has one line per quantity — so the summary is
+    // bounded by how many things are measured, not by how long the history is.
+    expect(output).toMatch(/wrote \d+ series files to series\/$/m);
     expect(output).toMatch(/hrv_beats: 69 samples across 1 day/);
-    // One line per quantity, not one per file.
-    expect(output.split("\n").length).toBeLessThan(60);
+
+    const coverageLines = output
+      .split("\n")
+      .filter((line) => /^ {4}\w+: \d+ samples? across \d+ days? \(/.test(line));
+    const recordCount = file.hard_signals.filter((s) => s.type === "series_ref").length;
+    expect(coverageLines).toHaveLength(recordCount);
   });
 
   it("keeps running dynamics, which a run prediction needs (D32)", () => {
     // These separate "slow because unrecovered" from "slow because form fell apart".
-    expect(seriesOf(file, "running_power")[0]!.summary.mean).toBe(284);
-    expect(seriesOf(file, "running_stride_length")[0]!.summary.mean).toBe(1.18);
-    expect(seriesOf(file, "running_vertical_oscillation")[0]!.summary.mean).toBe(8.4);
-    expect(seriesOf(file, "running_ground_contact_time")[0]!.summary.mean).toBe(243);
+    expect(samplesOf(dir, "running_power")).toEqual([284]);
+    expect(samplesOf(dir, "running_stride_length")).toEqual([1.18]);
+    expect(samplesOf(dir, "running_vertical_oscillation")).toEqual([8.4]);
+    expect(samplesOf(dir, "running_ground_contact_time")).toEqual([243]);
   });
 
   it("converts running speed from either unit into m/s", () => {
     // The fixture carries one sample in m/s and one in km/hr: 12.6 km/hr is 3.5 m/s.
     const speed = seriesOf(file, "running_speed")[0]!;
     expect(speed.n).toBe(2);
-    expect(speed.summary.min).toBe(3.42);
-    expect(speed.summary.max).toBe(3.5);
+    expect(samplesOf(dir, "running_speed").sort((a, b) => a - b)).toEqual([3.42, 3.5]);
   });
 
   it("keeps training load and gait", () => {
-    expect(seriesOf(file, "physical_effort")[0]!.summary.mean).toBe(9.4);
-    expect(seriesOf(file, "basal_energy")[0]!.summary.mean).toBe(72.4);
-    expect(seriesOf(file, "exercise_time")[0]!.summary.mean).toBe(1);
-    expect(seriesOf(file, "walking_speed")[0]!.summary.mean).toBe(1.42);
+    expect(samplesOf(dir, "physical_effort")).toEqual([9.4]);
+    expect(samplesOf(dir, "basal_energy")).toEqual([72.4]);
+    expect(samplesOf(dir, "exercise_time")).toEqual([1]);
+    expect(samplesOf(dir, "walking_speed")).toEqual([1.42]);
     // 78 cm becomes 0.78 m.
-    expect(seriesOf(file, "walking_step_length")[0]!.summary.mean).toBe(0.78);
-    expect(seriesOf(file, "walking_asymmetry_percentage")[0]!.summary.mean).toBe(1.4);
-    expect(seriesOf(file, "time_in_daylight")[0]!.summary.mean).toBe(46);
+    expect(samplesOf(dir, "walking_step_length")).toEqual([0.78]);
+    expect(samplesOf(dir, "walking_asymmetry_percentage")).toEqual([1.4]);
+    expect(samplesOf(dir, "time_in_daylight")).toEqual([46]);
   });
 
   it("keeps body composition and blood pressure", () => {
@@ -251,8 +275,9 @@ describe("ath import — Apple Health", () => {
     expect(ecgBeats).toHaveLength(1);
     expect(ecgBeats[0]!.source).toBe("apple-ecg-1");
     // Mean interval of an 880/920 alternation is 900 ms.
-    expect(ecgBeats[0]!.summary.mean).toBeGreaterThan(880);
-    expect(ecgBeats[0]!.summary.mean).toBeLessThan(920);
+    const intervals = samplesOf(dir, "ecg_beats", "apple-ecg-1");
+    expect(meanOf(intervals)).toBeGreaterThan(880);
+    expect(meanOf(intervals)).toBeLessThan(920);
   });
 
   it("does not store the waveform or the rhythm classification", () => {
@@ -553,29 +578,45 @@ describe("ath import — failure modes", () => {
     // A document that travelled without its sidecars must still be usable.
     const dir = newAthlete();
     ath(["import", join(EXPORTS, "apple/export.xml")], dir);
-    const ref = seriesOf(read(dir), "heart_rate")[0]!;
-    rmSync(join(dir, ref.file));
+    // The whole folder gone is the case that must stay usable: that is the document
+    // travelling on its own.
+    rmSync(join(dir, "series"), { recursive: true, force: true });
 
     const res = ath(["check"], dir);
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain("sidecar not found");
+    expect(res.stdout).toContain("series data not present");
     expect(res.stdout).toContain("valid Athletic Standard");
   });
 
   it("fails when a sidecar was edited after import (D25)", () => {
-    // Worse than an absent file: the receipts no longer describe the contents.
+    // Worse than an absent folder: the record no longer describes the contents.
     const dir = newAthlete();
     ath(["import", join(EXPORTS, "apple/export.xml")], dir);
-    const ref = seriesOf(read(dir), "heart_rate")[0]!;
 
-    const target = join(dir, ref.file);
+    const target = join(
+      dir,
+      seriesDayFiles(join(dir, "athlete.ath.json"), "heart_rate", "apple-1")[0]!.file,
+    );
     const tampered = JSON.parse(readFileSync(target, "utf8"));
     tampered.values[0] = 999;
     writeFileSync(target, JSON.stringify(tampered, null, 2) + "\n");
 
     const res = ath(["check"], dir);
     expect(res.code).toBe(1);
-    expect(res.stdout).toContain("does not match its recorded hash");
+    expect(res.stdout).toContain("heart_rate for apple-1 doesn't match what was recorded");
+  });
+
+  it("fails when a day's sidecar is deleted while the folder remains (D40)", () => {
+    // Missing, extra, and edited all report the same thing: the fix is the same.
+    const dir = newAthlete();
+    ath(["import", join(EXPORTS, "apple/export.xml")], dir);
+    rmSync(
+      join(dir, seriesDayFiles(join(dir, "athlete.ath.json"), "heart_rate", "apple-1")[0]!.file),
+    );
+
+    const res = ath(["check"], dir);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("re-import to fix");
   });
 
   it("refuses an export it cannot place, rather than guessing", () => {

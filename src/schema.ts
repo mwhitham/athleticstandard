@@ -313,38 +313,48 @@ export const SeriesQuantityEnum = z.enum(
   Object.keys(SERIES_QUANTITY_UNITS) as [SeriesQuantity, ...SeriesQuantity[]],
 );
 
-/** The receipts a reader needs to judge a series without opening the sidecar. */
-export const SeriesSummary = z.strictObject({
-  min: z.number(),
-  max: z.number(),
-  mean: z.number(),
-});
-
 /**
- * A pointer to a dense sample stream held in a sibling file (D25).
+ * What the document says about a dense sample stream held in sibling files
+ * (D25, narrowed by D40).
  *
  * All-day heart rate, per-second workout heart rate, and beat-to-beat intervals
  * would add roughly 22 MB a year to a document measured at 0.43 MB, which stops
- * it being readable in a text editor. So the samples live in `series/` — one
- * file per quantity per day per source, nothing averaged or downsampled — and
- * this record carries the path, the hash, and enough summary to reason about
- * coverage without reading them.
+ * it being readable in a text editor. So the samples live in `series/`, one file
+ * per quantity per day per source, nothing averaged or downsampled.
+ *
+ * One record covers a whole quantity rather than a single day. Per-day records
+ * solved the sample problem and then recreated it: a real Apple import produced
+ * 24,448 of them and a 10.5 MB document, about 3 million tokens, which no agent
+ * can read at any context size. Grouped, the same import needs 18 records and a
+ * few kilobytes, and the size no longer grows with the length of the history.
+ *
+ * `days` and `n` are here to describe coverage to a reader. They play no part in
+ * verification — `sha256` does that alone.
  */
 export const SeriesRef = z
   .strictObject({
     type: z.literal("series_ref"),
     quantity: SeriesQuantityEnum,
     unit: z.string().describe("Canonical unit for the quantity"),
-    start: Timestamp,
-    end: Timestamp,
     source: Id.describe("Reference to sources[].id"),
-    file: z.string().describe("Path to the sidecar, relative to the athlete file"),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/),
-    n: z.number().int().nonnegative().describe("Sample count in the sidecar"),
-    summary: SeriesSummary,
+    from: CalendarDate.describe("First day with samples"),
+    to: CalendarDate.describe("Last day with samples"),
+    days: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe("Days that have a sidecar. Not every day between `from` and `to` need have one"),
+    n: z.number().int().nonnegative().describe("Total samples across those days"),
+    sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .describe("Hash over each day's sidecar hash, in date order"),
     note: z.string().optional(),
   })
-  .describe("A reference to a dense sample series stored in a sibling file");
+  .describe(
+    "Coverage of a dense sample series stored in sibling files, one per day. " +
+      "Individual days are found by name, not listed here.",
+  );
 
 /** The shape of a sidecar file: parallel arrays, offsets in milliseconds. */
 export const SeriesFile = z

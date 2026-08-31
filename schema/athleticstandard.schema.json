@@ -1821,56 +1821,39 @@
                 "type": "string",
                 "description": "Canonical unit for the quantity"
               },
-              "start": {
-                "type": "string",
-                "format": "date-time",
-                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-                "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
-              },
-              "end": {
-                "type": "string",
-                "format": "date-time",
-                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-                "description": "ISO 8601 timestamp with timezone (UTC `Z` or explicit offset)"
-              },
               "source": {
                 "type": "string",
                 "pattern": "^[a-z0-9][a-z0-9_-]*$",
                 "description": "Reference to sources[].id"
               },
-              "file": {
+              "from": {
                 "type": "string",
-                "description": "Path to the sidecar, relative to the athlete file"
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+                "description": "First day with samples"
               },
-              "sha256": {
+              "to": {
                 "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+                "description": "Last day with samples"
+              },
+              "days": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Days that have a sidecar. Not every day between `from` and `to` need have one"
               },
               "n": {
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991,
-                "description": "Sample count in the sidecar"
+                "description": "Total samples across those days"
               },
-              "summary": {
-                "type": "object",
-                "properties": {
-                  "min": {
-                    "type": "number"
-                  },
-                  "max": {
-                    "type": "number"
-                  },
-                  "mean": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "min",
-                  "max",
-                  "mean"
-                ],
-                "additionalProperties": false
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$",
+                "description": "Hash over each day's sidecar hash, in date order"
               },
               "note": {
                 "type": "string"
@@ -1880,16 +1863,15 @@
               "type",
               "quantity",
               "unit",
-              "start",
-              "end",
               "source",
-              "file",
-              "sha256",
+              "from",
+              "to",
+              "days",
               "n",
-              "summary"
+              "sha256"
             ],
             "additionalProperties": false,
-            "description": "A reference to a dense sample series stored in a sibling file"
+            "description": "Coverage of a dense sample series stored in sibling files, one per day. Individual days are found by name, not listed here."
           },
           {
             "type": "object",

@@ -63,17 +63,9 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
       err(`${path}.source`, `unknown source '${sig.source}' — every hard signal needs provenance`);
     }
     if ("start" in sig && "end" in sig) {
-      // A series spanning a single sample has end == start, which is honest.
       // A session that begins and ends at the same instant did not happen.
-      const zeroLengthAllowed = sig.type === "series_ref";
-      const span = Date.parse(sig.end) - Date.parse(sig.start);
-      if (span < 0 || (span === 0 && !zeroLengthAllowed)) {
-        err(
-          `${path}`,
-          zeroLengthAllowed
-            ? `series end (${sig.end}) precedes start (${sig.start})`
-            : `session end (${sig.end}) is not after start (${sig.start})`,
-        );
+      if (Date.parse(sig.end) <= Date.parse(sig.start)) {
+        err(`${path}`, `session end (${sig.end}) is not after start (${sig.start})`);
       }
     }
     if (sig.type === "benchmark_result") {
@@ -86,11 +78,11 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
       if (sig.unit !== expected) {
         err(`${path}.unit`, `${sig.quantity} is measured in ${expected}, not '${sig.unit}'`);
       }
-      if (sig.n === 0) {
-        warn(`${path}.n`, `series references an empty sidecar — nothing was imported for this day`);
+      if (sig.from > sig.to) {
+        err(`${path}`, `series coverage starts (${sig.from}) after it ends (${sig.to})`);
       }
-      if (sig.summary.min > sig.summary.max) {
-        err(`${path}.summary`, `summary min (${sig.summary.min}) exceeds max (${sig.summary.max})`);
+      if (sig.days === 0 || sig.n === 0) {
+        warn(`${path}`, `series covers no samples — nothing was imported for ${sig.quantity}`);
       }
     }
     if (sig.type === "vendor_score" && !sig.scale.trim()) {
@@ -103,19 +95,22 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
 
   // --- Derived values must cite series this file actually contains (D26) ---
   // A computed number that references evidence the file lacks cannot be audited.
-  const seriesByKey = new Set(
-    file.hard_signals
-      .filter((s): s is Extract<typeof s, { type: "series_ref" }> => s.type === "series_ref")
-      .map((s) => `${s.quantity}|${s.source}|${day(s.start)}`),
-  );
+  // Coverage is per quantity now (D40), so the day has to fall inside the span
+  // rather than match a record of its own.
+  const coverage = new Map<string, { from: string; to: string }>();
+  for (const sig of file.hard_signals) {
+    if (sig.type !== "series_ref") continue;
+    coverage.set(`${sig.quantity}|${sig.source}`, { from: sig.from, to: sig.to });
+  }
   file.hard_signals.forEach((sig, i) => {
     if (!("derived" in sig) || !sig.derived) return;
-    const key = `${sig.derived.from}|${sig.source}|${day(sig.recorded_at)}`;
-    if (!seriesByKey.has(key)) {
+    const span = coverage.get(`${sig.derived.from}|${sig.source}`);
+    const on = day(sig.recorded_at);
+    if (!span || on < span.from || on > span.to) {
       err(
         `hard_signals.${i}.derived.from`,
-        `derived from '${sig.derived.from}' but no such series is recorded for source ` +
-          `'${sig.source}' on ${day(sig.recorded_at)} — a derived value must cite evidence in the file`,
+        `derived from '${sig.derived.from}' but source '${sig.source}' has no such series ` +
+          `covering ${on} — a derived value must cite evidence in the file`,
       );
     }
   });

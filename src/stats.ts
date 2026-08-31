@@ -65,8 +65,14 @@ export function renderStats(file: AthleticStandardFileT): string {
   const lines: string[] = [];
   const name = file.athlete.name ?? "unnamed athlete";
 
+  // A series coverage record carries dates rather than instants, and it spans a
+  // range, so both ends count toward the file's overall window.
   const timestamps = [
-    ...file.hard_signals.map((s) => ("recorded_at" in s ? s.recorded_at : s.start)),
+    ...file.hard_signals.flatMap((s) => {
+      if ("recorded_at" in s) return [s.recorded_at];
+      if (s.type === "series_ref") return [s.from, s.to];
+      return [s.start];
+    }),
     ...file.soft_signals.map((s) => s.reported_at),
   ].sort((a, b) => instant(a) - instant(b));
   const range =
@@ -119,18 +125,16 @@ export function renderStats(file: AthleticStandardFileT): string {
     (s): s is Extract<typeof s, { type: "series_ref" }> => s.type === "series_ref",
   );
   if (seriesRefs.length > 0) {
-    const byQuantity = new Map<string, { days: number; samples: number }>();
-    for (const s of seriesRefs) {
-      const key = `${s.source} ${s.quantity}`;
-      const acc = byQuantity.get(key) ?? { days: 0, samples: 0 };
-      byQuantity.set(key, { days: acc.days + 1, samples: acc.samples + s.n });
-    }
     lines.push("sample series (stored alongside the file):");
-    for (const [key, { days, samples }] of [...byQuantity].sort()) {
+    for (const s of [...seriesRefs].sort((a, b) =>
+      `${a.source} ${a.quantity}`.localeCompare(`${b.source} ${b.quantity}`),
+    )) {
       lines.push(
-        `  ${key}: ${samples} sample${samples === 1 ? "" : "s"} across ${days} day${days === 1 ? "" : "s"}`,
+        `  ${s.source} ${s.quantity}: ${s.n} sample${s.n === 1 ? "" : "s"} across ` +
+          `${s.days} day${s.days === 1 ? "" : "s"} (${s.from} → ${s.to})`,
       );
     }
+    lines.push(`  read them with \`ath series <quantity>\``);
     lines.push("");
   }
 

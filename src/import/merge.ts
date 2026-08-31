@@ -10,6 +10,7 @@
 import type {
   AthleticStandardFileT,
   HardSignalT,
+  SeriesRefT,
   SoftSignalT,
   SourceT,
 } from "../schema.js";
@@ -34,8 +35,10 @@ export interface MergeSummary {
   duplicates: number;
   softAdded: number;
   softDuplicates: number;
+  /** The day sidecars this run wrote. */
   seriesWritten: BuiltSeries[];
-  seriesReplaced: number;
+  /** The coverage records now in the document, spanning every day on disk. */
+  coverage: SeriesRefT[];
   skipped: Map<string, number>;
   skipExamples: Map<string, string>;
 }
@@ -114,9 +117,14 @@ export function upsertSource(
   return id;
 }
 
-/** Instant a signal belongs to: sessions are keyed on their start. */
+/**
+ * Instant a signal belongs to: sessions are keyed on their start, and a series on
+ * the first day it covers, since coverage records carry dates rather than instants.
+ */
 function signalTimestamp(sig: HardSignalT): string {
-  return "recorded_at" in sig ? sig.recorded_at : sig.start;
+  if ("recorded_at" in sig) return sig.recorded_at;
+  if (sig.type === "series_ref") return sig.from;
+  return sig.start;
 }
 
 /**
@@ -140,12 +148,14 @@ const day = (ts: string) => ts.slice(0, 10);
 /**
  * Apply a payload to the file. Mutates `file` and returns what changed.
  *
- * Series replace rather than accumulate: re-importing a day means a fuller export
- * has arrived for it, and appending would double the samples.
+ * `groupRefs` are the coverage records assembled from disk after the day sidecars
+ * were written. They arrive ready-made because a group hash has to cover days from
+ * earlier imports too, which only the filesystem knows about (D40).
  */
 export function mergePayload(
   file: AthleticStandardFileT,
   payload: ImportPayload,
+  groupRefs: SeriesRefT[] = [],
 ): MergeSummary {
   const sourceId = upsertSource(file, payload.vendor, payload.detail);
 
@@ -154,21 +164,14 @@ export function mergePayload(
 
   const existingKeys = new Set(file.hard_signals.map(hardKey));
 
-  // Series first: a derived value must be able to cite a series in the file (D26),
-  // so the reference has to be present before the point that points at it.
-  const seriesRefs = payload.series.map((s) => s.ref);
-  const replacedKeys = new Set(seriesRefs.map((r) => `${r.quantity}|${r.source}|${day(r.start)}`));
-  const before = file.hard_signals.length;
-  file.hard_signals = file.hard_signals.filter((sig) => {
-    if (sig.type !== "series_ref") return true;
-    return !replacedKeys.has(`${sig.quantity}|${sig.source}|${day(sig.start)}`);
-  });
-  const seriesReplaced = before - file.hard_signals.length;
-
-  for (const ref of seriesRefs) {
-    file.hard_signals.push(ref);
-    added.set("series_ref", (added.get("series_ref") ?? 0) + 1);
-  }
+  // Series coverage first: a derived value must be able to cite a series in the
+  // file (D26), so the record has to be present before the point that points at it.
+  // One record per quantity, so a re-import replaces it outright.
+  const replaced = new Set(groupRefs.map((r) => `${r.quantity}|${r.source}`));
+  file.hard_signals = file.hard_signals.filter(
+    (sig) => sig.type !== "series_ref" || !replaced.has(`${sig.quantity}|${sig.source}`),
+  );
+  for (const ref of groupRefs) file.hard_signals.push(ref);
 
   for (const sig of payload.hardSignals) {
     const key = hardKey(sig);
@@ -206,7 +209,7 @@ export function mergePayload(
     softAdded,
     softDuplicates,
     seriesWritten: payload.series,
-    seriesReplaced,
+    coverage: groupRefs,
     skipped: payload.skipped,
     skipExamples: payload.skipExamples,
   };
@@ -229,29 +232,24 @@ export function renderMergeSummary(summary: MergeSummary, label: string): string
     lines.push(`  soft signals (self-reported): ${summary.softAdded}`);
   }
 
-  // Years of data means thousands of sidecars, so this reports totals per quantity
-  // rather than one line per file — a summary nobody can read is not a summary.
+  // Years of data means thousands of sidecars, so the file count is one line and the
+  // per-quantity detail comes from coverage — a summary nobody can read is not a
+  // summary. Coverage is the more useful figure anyway: it counts every day on disk,
+  // not just the days this run happened to touch.
   if (summary.seriesWritten.length > 0) {
-    const byQuantity = new Map<string, { files: number; samples: number }>();
-    for (const built of summary.seriesWritten) {
-      const acc = byQuantity.get(built.ref.quantity) ?? { files: 0, samples: 0 };
-      byQuantity.set(built.ref.quantity, {
-        files: acc.files + 1,
-        samples: acc.samples + built.ref.n,
-      });
-    }
-    const totalFiles = summary.seriesWritten.length;
-    lines.push(
-      `  wrote ${totalFiles} series file${totalFiles === 1 ? "" : "s"} to ${SERIES_DIR}/:`,
-    );
-    for (const [quantity, { files, samples }] of [...byQuantity].sort()) {
+    const written = summary.seriesWritten.length;
+    lines.push(`  wrote ${written} series file${written === 1 ? "" : "s"} to ${SERIES_DIR}/`);
+  }
+
+  if (summary.coverage.length > 0) {
+    lines.push(`  series coverage now recorded:`);
+    for (const ref of [...summary.coverage].sort((a, b) => a.quantity.localeCompare(b.quantity))) {
+      const span = ref.from === ref.to ? ref.from : `${ref.from} → ${ref.to}`;
       lines.push(
-        `    ${quantity}: ${samples} sample${samples === 1 ? "" : "s"} across ${files} day${files === 1 ? "" : "s"}`,
+        `    ${ref.quantity}: ${ref.n} sample${ref.n === 1 ? "" : "s"} across ` +
+          `${ref.days} day${ref.days === 1 ? "" : "s"} (${span})`,
       );
     }
-  }
-  if (summary.seriesReplaced > 0) {
-    lines.push(`  replaced ${summary.seriesReplaced} previously imported series day(s)`);
   }
 
   if (summary.duplicates > 0 || summary.softDuplicates > 0) {

@@ -8,7 +8,11 @@ import { Command } from "commander";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { ATHLETIC_STANDARD_VERSION, type AthleticStandardFileT } from "./schema.js";
+import {
+  ATHLETIC_STANDARD_VERSION,
+  SERIES_QUANTITY_UNITS,
+  type AthleticStandardFileT,
+} from "./schema.js";
 import {
   validateAthleticStandardFile,
   type ValidationIssue,
@@ -17,7 +21,14 @@ import {
 import { findFile, loadFile, loadFileRaw, saveFile, DEFAULT_FILENAME } from "./file.js";
 import { SEED_BENCHMARKS } from "./benchmarks.js";
 import { renderStats } from "./stats.js";
-import { checkSeriesRef } from "./series.js";
+import { checkSeriesRef, SERIES_DIR, seriesDirectory } from "./series.js";
+import {
+  matchingRefs,
+  readRawDays,
+  renderDaySummaries,
+  renderRawDays,
+  summarizeDays,
+} from "./seriesview.js";
 import { importExport, UnknownExportError } from "./import/index.js";
 import { renderMergeSummary } from "./import/merge.js";
 
@@ -145,6 +156,69 @@ program
   });
 
 program
+  .command("series")
+  .description("read a sample series back: one row per day, or the raw samples")
+  .argument("<quantity>", `one of: ${Object.keys(SERIES_QUANTITY_UNITS).join(", ")}`)
+  .option("--from <date>", "earliest day to include (YYYY-MM-DD)")
+  .option("--to <date>", "latest day to include (YYYY-MM-DD)")
+  .option("--source <id>", "only this source, when several measured the same quantity")
+  .option("--raw", "every sample, not a daily summary")
+  .option("--json", "structured output")
+  .option("--file <path>", "athlete file to read (default: the one in this directory)")
+  .action(
+    (
+      quantity: string,
+      opts: { from?: string; to?: string; source?: string; raw?: boolean; json?: boolean; file?: string },
+    ) => {
+      if (!(quantity in SERIES_QUANTITY_UNITS)) {
+        return fail(
+          `unknown quantity '${quantity}'. Known quantities: ` +
+            Object.keys(SERIES_QUANTITY_UNITS).join(", "),
+        );
+      }
+      const unit = SERIES_QUANTITY_UNITS[quantity as keyof typeof SERIES_QUANTITY_UNITS];
+
+      const path = findOrFail(opts.file);
+      let file: AthleticStandardFileT;
+      try {
+        file = loadFile(path);
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+
+      const query = { quantity, from: opts.from, to: opts.to, source: opts.source };
+      const refs = matchingRefs(file, query);
+      if (refs.length === 0) {
+        const available = [
+          ...new Set(
+            file.hard_signals
+              .filter((s) => s.type === "series_ref")
+              .map((s) => (s as { quantity: string }).quantity),
+          ),
+        ].sort();
+        return fail(
+          opts.source
+            ? `no ${quantity} series recorded for source '${opts.source}'`
+            : `no ${quantity} series in this file. Recorded: ${available.join(", ") || "none"}`,
+        );
+      }
+
+      if (opts.raw) {
+        const days = readRawDays(path, refs, query);
+        console.log(opts.json ? JSON.stringify(days, null, 2) : renderRawDays(quantity, unit, days));
+        return;
+      }
+
+      const rows = summarizeDays(path, refs, query);
+      console.log(
+        opts.json
+          ? JSON.stringify({ quantity, unit, days: rows }, null, 2)
+          : renderDaySummaries(quantity, unit, rows),
+      );
+    },
+  );
+
+program
   .command("stats")
   .description("summarize the file: counts, date ranges, baselines")
   .argument("[file]", "path to the file (default: the one in this directory)")
@@ -154,11 +228,16 @@ program
   });
 
 /**
- * Verify every sidecar series the document points at (D25).
+ * Verify the sample series the document describes (D25, narrowed by D40).
  *
- * A missing sidecar is a warning: the document must stay usable when it travels
- * without them. A hash or count mismatch is an error, because a file edited
- * underneath its receipts is worse than one that is simply absent.
+ * One rule: hash what is on disk for each quantity and compare. A missing day, an
+ * extra day, and an edited day all change the hash, all say the same thing, and all
+ * have the same remedy — import again, which rewrites the files and the record
+ * together. Telling those apart would hand the reader a distinction they cannot act
+ * on differently.
+ *
+ * No `series/` folder at all is the exception, and it is normal: that is the
+ * document travelling without its sidecars, which it is meant to survive.
  */
 function seriesIssues(path: string, result: ValidationResult): ValidationIssue[] {
   if (!result.valid) return [];
@@ -170,40 +249,35 @@ function seriesIssues(path: string, result: ValidationResult): ValidationIssue[]
     return [];
   }
 
+  const refs = file.hard_signals.filter(
+    (s): s is Extract<typeof s, { type: "series_ref" }> => s.type === "series_ref",
+  );
+  if (refs.length === 0) return [];
+
+  if (!existsSync(seriesDirectory(path))) {
+    return [
+      {
+        severity: "warning",
+        path: SERIES_DIR,
+        message:
+          `series data not present — the document describes ${refs.length} series but the ` +
+          `${SERIES_DIR}/ folder is not here. Everything else still reads normally.`,
+      },
+    ];
+  }
+
   const issues: ValidationIssue[] = [];
-  file.hard_signals.forEach((sig, i) => {
-    if (sig.type !== "series_ref") return;
-    const at = `hard_signals.${i}`;
-    const check = checkSeriesRef(path, sig);
-    switch (check.status) {
-      case "ok":
-        break;
-      case "missing":
-        issues.push({
-          severity: "warning",
-          path: `${at}.file`,
-          message: `sidecar not found: ${sig.file} — the document is still readable, but ${sig.n} samples are not here`,
-        });
-        break;
-      case "hash_mismatch":
-        issues.push({
-          severity: "error",
-          path: `${at}.sha256`,
-          message: `${sig.file} does not match its recorded hash (${check.detail}) — it was changed after import`,
-        });
-        break;
-      case "count_mismatch":
-        issues.push({ severity: "error", path: `${at}.n`, message: `${sig.file}: ${check.detail}` });
-        break;
-      case "unreadable":
-        issues.push({
-          severity: "error",
-          path: `${at}.file`,
-          message: `${sig.file} could not be read as a series file: ${check.detail}`,
-        });
-        break;
+  for (const ref of refs) {
+    if (checkSeriesRef(path, ref).status === "mismatch") {
+      issues.push({
+        severity: "error",
+        path: `${SERIES_DIR}/${ref.quantity}`,
+        message:
+          `${ref.quantity} for ${ref.source} doesn't match what was recorded — ` +
+          `re-import to fix`,
+      });
     }
-  });
+  }
   return issues;
 }
 

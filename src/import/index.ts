@@ -5,8 +5,8 @@
  * (source upsert, deduplication that always includes the device, series replacement)
  * live in one place and apply identically to every vendor.
  */
-import type { AthleticStandardFileT } from "../schema.js";
-import { writeSeriesFile } from "../series.js";
+import type { AthleticStandardFileT, SeriesQuantity, SeriesRefT } from "../schema.js";
+import { assembleSeriesRef, writeSeriesFile } from "../series.js";
 import {
   detectExport,
   isEcgEntry,
@@ -77,8 +77,26 @@ export async function importExport(
   // into three different phrasings for the same idea.
   payload.detail = detail;
 
-  const summary = mergePayload(file, payload);
-  for (const built of summary.seriesWritten) writeSeriesFile(athleteFilePath, built);
+  // Sidecars are written before the document is touched, because a coverage record
+  // hashes every day on disk for its quantity — including days written by earlier
+  // imports, which only the filesystem knows about (D40).
+  for (const built of payload.series) writeSeriesFile(athleteFilePath, built);
+
+  const touched = new Map<string, { quantity: SeriesQuantity; source: string }>();
+  for (const built of payload.series) {
+    touched.set(`${built.quantity}|${built.source}`, {
+      quantity: built.quantity,
+      source: built.source,
+    });
+  }
+
+  const coverage: SeriesRefT[] = [];
+  for (const { quantity, source } of touched.values()) {
+    const ref = assembleSeriesRef(athleteFilePath, quantity, source);
+    if (ref) coverage.push(ref);
+  }
+
+  const summary = mergePayload(file, payload, coverage);
 
   return { summary, label };
 }
