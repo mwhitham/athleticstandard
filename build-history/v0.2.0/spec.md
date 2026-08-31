@@ -22,6 +22,7 @@ The two-tier wall does not move. Device-measured and self-reported signals still
 ## 1. What ships in this version
 
 - Schema v0.2.0: eight new point types, a `series_ref` record, a `vendor_score` record, and a `derived` field on point measurements.
+- `ath series` for reading the sample streams back (D40).
 - Sidecar series files for dense sample streams, with hash verification in `ath check`.
 - RMSSD computed from beat intervals.
 - `ath import` for Apple Health export.zip, WHOOP CSV, and Oura CSV.
@@ -64,15 +65,12 @@ my-training/
   attachments/
 ```
 
-The document holds a reference with the receipts, so an agent can judge coverage without opening the sidecar:
+The document holds one record per quantity describing its coverage, so an agent can see what exists without opening any sidecar. Narrowed by D40 — this was per-day at first, which recreated the problem sidecars existed to solve:
 
 ```json
 { "type": "series_ref", "quantity": "heart_rate", "unit": "bpm",
-  "start": "2026-08-09T00:00:12-07:00", "end": "2026-08-09T23:59:41-07:00",
-  "source": "apple-1",
-  "file": "series/2026-08-09-heart_rate-apple-1.ath.series.json",
-  "sha256": "…", "n": 4211,
-  "summary": { "min": 47, "max": 178, "mean": 71.4 } }
+  "source": "apple-1", "from": "2023-06-01", "to": "2026-08-30",
+  "days": 1120, "n": 410131, "sha256": "d7c1f30127…" }
 ```
 
 The sidecar is parallel arrays with offsets in milliseconds from `start`:
@@ -99,7 +97,9 @@ Series quantities:
 
 Distance is split by modality because a triathlete's disciplines are separate questions. A slow swim and a slow run are different problems, and one summed number cannot tell them apart.
 
-`ath check` verifies each referenced sidecar: the file exists, its hash matches, and `n` and the summary agree with its contents. A missing sidecar is a **warning**, not an error, because the document must stay useful when it travels alone. A hash mismatch is an **error** — a file that has been edited underneath its receipts is worse than a missing one.
+`ath check` hashes what is on disk for each quantity and compares it to the record (D40). A missing day, an extra day, and an edited day all change the hash and all report the same thing, because the remedy is the same for all three. An absent `series/` folder is a single **warning**, not an error, because the document must stay useful when it travels alone.
+
+Days are read back with `ath series <quantity>`, which also computes the per-day minimum, maximum, and mean rather than storing them.
 
 ### 2.3 `vendor_score` — device-computed composites
 
@@ -168,6 +168,18 @@ ath import <path> [--file <athlete-file>]
 5. Save and print a summary: counts added by type, series files written with sample counts, soft signals added, duplicates skipped, unknown rows skipped.
 
 Unknown identifiers and clinical records are skipped with a count. That is a refusal to guess at a mapping, not a judgment that the data is unwanted. The file must pass validation after the merge.
+
+Sidecars are written before the document is touched, because a coverage hash spans every day on disk for its quantity — including days from earlier imports, which only the filesystem knows about (D40).
+
+## 4a. `ath series`
+
+```
+ath series <quantity> [--from <date>] [--to <date>] [--source <id>] [--raw] [--json]
+```
+
+Ships with D40 rather than after it. Once the document holds only coverage, there is no way to reach the samples without building sidecar paths by hand, and an agent doing that will get them wrong. It also preserves what D40 saved: a question about last week returns seven rows, not seven files of raw samples.
+
+One human-readable row per day by default — count, minimum, maximum, mean — which is where those figures now come from instead of being stored. `--raw` returns the samples themselves, `--json` returns structure for a caller that wants it.
 
 ## 5. Importers
 
@@ -275,6 +287,14 @@ Required cases: unit conversion and mapping per importer; RMSSD against a hand-c
 
 `pnpm typecheck && pnpm test && pnpm build` passes at every commit.
 
-## 8. Out of scope
+## 8. The skill surface, for when step 5 arrives
 
-Unchanged from [v0.1.0 §11](../v0.1.0/spec.md): the Open Wearables connector, the hosted OAuth broker, an MCP server, Garmin FIT, multi-athlete files, encryption at rest, and any web UI. Added here: the cross-source comparison command (§3), which needs the prediction loop first.
+Two things are settled here so that build step 5 does not have to guess (D41). `skill/` is a **directory** that `init` copies wholesale, not a hardcoded path to a single `SKILL.md` as [v0.1.0 §4](../v0.1.0/spec.md) assumed. And each skill states which format version it expects.
+
+Both cost nothing now, before any skill exists, and are awkward to change once skills are in the wild.
+
+Not built, and not to be built without a decision of its own: an install command, a registry, or community distribution. See D41 for why — the mechanism already exists in the agent hosts, and a distribution channel would imply endorsement of coaching advice this project declines to give.
+
+## 9. Out of scope
+
+Unchanged from [v0.1.0 §11](../v0.1.0/spec.md): the Open Wearables connector, the hosted OAuth broker, an MCP server, Garmin FIT, multi-athlete files, encryption at rest, and any web UI. Added here: the cross-source comparison command (§3), which needs the prediction loop first, and skill distribution (§8).

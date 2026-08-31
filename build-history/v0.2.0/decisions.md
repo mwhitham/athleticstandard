@@ -215,3 +215,59 @@ Rejected alternative: **store the track as a series so pace and elevation are av
 Someone who unzips their export and points at `export.xml` still has `electrocardiograms/` and `workout-routes/` sitting beside it. Looking only inside the given path would silently drop data that is right there, which is the failure mode this version keeps finding.
 
 `DetectedExport` therefore carries an `auxRoot`: the archive for a zip, the folder itself for a folder, and the containing folder for a bare file.
+
+## D40. One series record per quantity, not per day
+
+D25 moved dense samples into sidecar files so the document would stay readable. It worked for the samples and then recreated the same problem with the references: a real Apple import produced 24,448 `series_ref` records and a 10.5 MB document, roughly 3 million tokens. No agent can read that at any context size, which breaks the format's first principle. Worse, it grew with the length of the history, so it got further out of reach every year.
+
+One record now covers a whole quantity:
+
+```json
+{ "type": "series_ref", "quantity": "heart_rate", "source": "apple-1",
+  "unit": "bpm", "from": "2023-06-01", "to": "2026-08-30",
+  "days": 1120, "n": 410131, "sha256": "d7c1f30127…" }
+```
+
+Measured on the same 24,448 sidecars: 18 records, 4.9 KB, an 8 KB document. The size no longer depends on how much history exists.
+
+Three fields went away and each for its own reason. `file` is derivable — a sidecar's name is fully determined by its day, quantity, and source, so storing 24,448 paths was storing the same rule 24,448 times. The per-day `summary` moved from stored to computed, which is why `ath series` had to ship in the same change rather than after it. `start` and `end` became `from` and `to`, calendar dates rather than instants, because coverage is measured in days.
+
+`sha256` hashes each day's hash in date order rather than the concatenated contents. The day is hashed alongside its content hash, so moving a day's samples to a different date changes the result even though the bytes did not.
+
+### Verification became one rule
+
+Hash whatever is on disk for that quantity and compare it to the record. A missing day, an extra day, and an edited day all change the hash, all get the same message, and all have the same fix: import again, which rewrites the files and the record together.
+
+The earlier design distinguished those cases. Dropping the distinction is the point, not a concession — knowing which of the three happened does not change what anyone would do about it, and the branching was where the complexity lived.
+
+One exception remains, and it is the case D25 already cared about: no `series/` folder at all is reported once as "series data not present" and series checks are skipped. That is the document travelling without its sidecars, which it has to survive.
+
+The cost is that `check` says "heart_rate doesn't match what was recorded" rather than naming the day. Acceptable because the remedy is identical either way, and it only arises when something changed a file without an import doing it.
+
+### Rejected
+
+- **Leave it.** Disqualified rather than merely inelegant. 3 million tokens cannot be read.
+- **Monthly buckets.** 810 records and roughly 100k tokens. Better, but still most of a context window spent listing what exists, and still growing with history.
+- **A separate `series/index.json`.** Works, and earns nothing. Sidecar filenames are already deterministic, so nothing needs an index to find a day, and it would add a second place that can drift from the document.
+- **Storing the covered days as a list.** Would let `check` name exactly which day changed. Rejected at roughly 300 KB for 24,448 dates: a smaller version of the problem being fixed, bought for a distinction nobody acts on.
+
+### Consequences in the code
+
+Imports write sidecars before touching the document, because a coverage hash spans days from earlier imports and only the filesystem knows about those. And a derived value now cites coverage rather than a specific day, so [src/validate.ts](../../src/validate.ts) checks that the day falls inside the span — without that change every ECG-derived and beat-derived RMSSD would fail validation.
+
+## D41. The skill surface is plural, and distribution is not ours to build
+
+No `skill/` directory exists yet; `package.json` reserves the slot and [v0.1.0's spec](../v0.1.0/spec.md) plans a single `skill/SKILL.md` installed by `init` at build step 5.
+
+Two things are settled now because they cost nothing before any skill exists and are awkward to retrofit afterwards:
+
+- **`skill/` is a directory that `init` copies wholesale**, not a hardcoded path to one file. Nothing about the format wants exactly one skill, and discovering that later means changing an installer people already run.
+- **Each skill states which format version it expects.** Trivial to add when there are no skills in the wild, annoying once there are.
+
+**Not built:** an install command, a registry, or community distribution.
+
+The mechanism already exists and is not ours. Agent hosts discover skills from their own folders, so anyone can write one today and nothing in this project stands in their way. Building a channel would add a step that the ecosystem already provides.
+
+And there is a governance question that deserves its own decision rather than being settled by accident. This project is not a coach. Skills we ship, we control. A community skill saying "deload this week" is coaching, and building a distribution channel implies endorsement of whatever flows through it. That is a decision to make deliberately, if it is ever made.
+
+Worth recording alongside: the pressure for sport-specific skills may resolve through benchmarks instead. Custom benchmarks are already first-class and user-extensible, while the reasoning procedure — predict before, grade after, explain the miss from recorded evidence — looks sport-agnostic. If that holds, a sport needs a benchmark definition rather than a skill.

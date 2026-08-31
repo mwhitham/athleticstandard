@@ -130,18 +130,30 @@ A point measurement may carry a `derived` block, meaning the value was computed 
 
 The block records enough to reproduce or dispute the number. Absence of `derived` means the device reported the value. Agents should weight a derived value by the receipts it carries, and the validator requires the cited series to be present in the file for the same source and day.
 
-### `series_ref` — dense samples in a sibling file
+### `series_ref` — coverage of dense samples held in sibling files
 
-Heart rate all day, one sample per second inside a workout, and beat-to-beat intervals are streams rather than readings. Keeping them inline would add roughly 22 MB a year to a document measured at 0.43 MB, so they live in sibling files and the document holds a reference:
+Heart rate all day, one sample per second inside a workout, and beat-to-beat intervals are streams rather than readings. Keeping them inline would add roughly 22 MB a year to a document measured at 0.43 MB, so they live in sibling files.
+
+One record describes a whole quantity, not a single day:
 
 ```json
 { "type": "series_ref", "quantity": "heart_rate", "unit": "bpm",
-  "start": "2026-08-09T00:00:12-07:00", "end": "2026-08-09T23:59:41-07:00",
-  "source": "apple-1",
-  "file": "series/2026-08-09-heart_rate-apple-1.ath.series.json",
-  "sha256": "…", "n": 4211,
-  "summary": { "min": 47, "max": 178, "mean": 71.4 } }
+  "source": "apple-1", "from": "2023-06-01", "to": "2026-08-30",
+  "days": 1120, "n": 410131, "sha256": "d7c1f30127…" }
 ```
+
+| Field | Notes |
+|---|---|
+| `from`, `to` | first and last day with samples |
+| `days` | days that have a file; not every day in the span need have one |
+| `n` | total samples across those days |
+| `sha256` | hash over each day's hash, in date order |
+
+Per-day records were the first design and they recreated the problem sidecars existed to solve. A real import produced 24,448 of them and a 10.5 MB document, about 3 million tokens, which no agent can read. Grouped, the same data needs 18 records and 8 KB, and the size stops growing with the length of the history.
+
+`days` and `n` describe coverage to a reader. They play no part in verification — the hash does that alone.
+
+Individual days are not listed because they do not need to be: a sidecar's name is fully determined by its day, quantity, and source. Read them with `ath series`, which also computes the per-day minimum, maximum, and mean rather than storing them.
 
 | `quantity` | Canonical unit | Notes |
 |---|---|---|
@@ -173,7 +185,7 @@ The running group is what a device records stride by stride during a run. These 
 
 Walking asymmetry deserves a note: one foot moving at a different speed from the other is a plausible early sign of injury, and it trends over months.
 
-The `summary` and `n` are receipts, so an agent can judge coverage without opening the sidecar. Nothing is averaged or downsampled — the sidecar holds every sample the source contained.
+Nothing is averaged or downsampled anywhere: the sidecars hold every sample the source contained, and the document's `days` and `n` describe what is there without pre-digesting it.
 
 A sidecar is one quantity, one day, one source:
 
@@ -185,7 +197,13 @@ A sidecar is one quantity, one day, one source:
 
 `offsets_ms` and `values` are parallel arrays of equal length, offsets measured in milliseconds from `start`. Milliseconds rather than seconds because beat intervals are about 850 ms apart, and whole seconds would collapse beats sharing a second into one instant.
 
-Validators must check that each referenced sidecar exists, that its hash matches, and that `n` agrees with its contents. A **missing** sidecar is a warning: the document has to stay usable when it travels alone. A **changed** sidecar is an error, because a file edited underneath its receipts is worse than one that is absent.
+#### Verifying a series
+
+One rule: hash what is on disk for the quantity and compare it to `sha256`. A missing day, an extra day, and an edited day all change the hash, all report the same thing, and all have the same remedy — import again, which rewrites the files and the record together.
+
+The causes are deliberately not distinguished. Knowing which of the three happened does not change what anyone would do about it.
+
+The one exception is an absent `series/` folder, which is reported once as "series data not present" and skips series checks entirely. That is the document travelling without its sidecars, and it must stay usable.
 
 ### `vendor_score` — device-computed composites
 
@@ -353,8 +371,8 @@ Validators should accept any file whose major version they support and warn on n
 Two layers, both required for a file to be conformant:
 
 1. **Schema** (`schema/athleticstandard.schema.json`): shapes, types, enums, canonical units, strict objects (unknown keys rejected).
-2. **Semantic rules** (reference implementation: `src/validate.ts`): source and benchmark references resolve; ids unique; session `end` after `start` (a `series_ref` may have `end` equal to `start`, since a single sample spans no time); score keys match `score_type`; ratings carry scales; vendor scores carry scales; photo provenance names its interpreter; a `derived` value cites a series present in the file for the same source and day; series units match their quantity; actuals don't precede predictions; grades require actuals; miss analyses require grades; empty cause lists must be marked unexplained.
-3. **Sidecar checks** for any `series_ref`: the file exists, its hash matches, and `n` agrees with its contents. A missing sidecar is a warning; a changed one is an error.
+2. **Semantic rules** (reference implementation: `src/validate.ts`): source and benchmark references resolve; ids unique; session `end` after `start`; series coverage does not end before it begins; score keys match `score_type`; ratings carry scales; vendor scores carry scales; photo provenance names its interpreter; a `derived` value cites a series whose coverage includes the day it was computed for; series units match their quantity; actuals don't precede predictions; grades require actuals; miss analyses require grades; empty cause lists must be marked unexplained.
+3. **Sidecar checks** for any `series_ref`: hash what is on disk for the quantity and compare. A mismatch is one error naming the quantity. An absent `series/` folder is a single warning, not an error.
 
 ## Appendix A — Prior art and mapping
 

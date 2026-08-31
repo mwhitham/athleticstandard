@@ -100,7 +100,29 @@ You can import from more than one device. Readings are never mixed together: eac
 
 Two things it won't do with those. It doesn't keep the ECG trace itself or what the Health app concluded about your heart rhythm; that belongs with your doctor, not in a training file. And if a recording wasn't a normal rhythm, it's skipped rather than used, because heartbeat variation only means "well recovered" when the rhythm is normal in the first place.
 
-**A folder appears next to your file.** Things measured constantly, like heart rate all day, would make `athlete.ath.json` tens of megabytes and no longer something you can open and read. Those samples go into a `series/` folder beside it instead, and your file points at them. Nothing is thinned out or averaged away — it's all kept, just not in the middle of the document. There's one small file per day per measurement, so asking about last week reads seven files rather than a whole year. Keep the folder with the file. If it goes missing, `ath check` says so and your file still works.
+**A folder appears next to your file.** Things measured constantly, like heart rate all day, would make `athlete.ath.json` tens of megabytes and no longer something you can open and read. Those samples go into a `series/` folder beside it instead. Nothing is thinned out or averaged away — it's all kept, just not in the middle of the document. There's one small file per day per measurement, so asking about last week reads seven files rather than a whole year.
+
+Your file keeps a one-line summary of each measurement — what it covers and how many samples — rather than a line per day. With eleven years of step counts that's the difference between a readable file and a ten-megabyte one.
+
+Keep the folder with the file. If it goes missing, `ath check` says so and your file still works.
+
+## Reading the detailed data
+
+`ath stats` gives you the overview. For the day-by-day detail, `ath series`:
+
+```
+ath series heart_rate
+```
+
+```
+heart_rate (bpm) — 7 days
+
+  2026-08-24  n=288  min 48  max 171  mean 64.2
+  2026-08-25  n=291  min 47  max 166  mean 63.8
+  ...
+```
+
+Narrow it with `--from` and `--to`, pick a device with `--source`, get every individual reading with `--raw`, or ask for JSON with `--json`.
 
 **Your own notes come across too.** If you answered WHOOP's daily questions about alcohol, caffeine, or how you slept, those come in as self-reported entries — kept separate from measurements, because you reported them rather than a sensor.
 
@@ -112,7 +134,7 @@ Deliberately left out: medical records from your health provider, and findings t
 
 Early days. Version 0.2.
 
-Working today: creating a file, loading exports from Apple Health, WHOOP, and Oura, checking the file, and summarizing it.
+Working today: creating a file, loading exports from Apple Health, WHOOP, and Oura, checking the file, summarizing it, and reading the detailed measurements back.
 
 Coming next: the commands that record and grade predictions.
 

@@ -13,8 +13,9 @@ Tracks the build order from `spec.md` §7. Update when a step lands.
 | 7 | SPEC.md, README, connections, progress | ✅ done |
 | 8 | Real-export fixes: D32–D36 (running dynamics, unit refusal, beat continuity) | ✅ done |
 | 9 | ECG-derived RMSSD and workout-route splits: D37–D39 | ✅ done |
+| 10 | Grouped series coverage + `ath series`: D40. Skill surface: D41 | ✅ done |
 
-State as of 2026-08-30: v0.2.0 complete. 148 tests passing, up from 29.
+State as of 2026-08-31: v0.2.0 complete. 168 tests passing, up from 29.
 
 The last two additions came from looking at what else an export folder actually contains rather than at what the spec listed: the ECG recordings and the GPS routes were both sitting there unread. Both are now used, and both are deliberately reduced to the measurement rather than stored whole — beat intervals without the waveform, splits without the coordinates.
 
@@ -27,6 +28,8 @@ Bugs the build caught, worth remembering. The first two came from testing the co
 - WHOOP also writes `UTCZ` around daylight-saving transitions, and leaves `Cycle end time` blank for the cycle in progress.
 - **A real Apple export skipped 928,750 records as unmapped**, including all running dynamics. Fixed in D32, which also records why the remaining skips stay skipped.
 - RMSSD was computed by accumulating each beat's reported rate and ignoring the timestamps, which cannot see a dropped beat. Since a gap makes two non-successive intervals look adjacent, every missed beat was being read as variability. See D35.
+- Two ECG recordings yielded 2 beats where there should have been 35. The R-peak threshold was set as a fraction of the largest value in the recording, so a single motion artifact sat above every genuine beat. A percentile fixed it.
+- **The sidecar design solved the sample problem and recreated it with the references.** 24,448 per-day records made the document 10.5 MB, about 3 million tokens — unreadable, and growing every year. Grouped per quantity it is 8 KB. See D40. Worth remembering as a shape of mistake: moving a cost somewhere else is not the same as removing it, and the second version can look nothing like the first.
 
 v0.1.0 steps 4–7 (`context` / `log` / `record-prediction` / `grade`, the Skill, `backtest`, polish) are still tracked in [v0.1.0/progress.md](../v0.1.0/progress.md).
 
