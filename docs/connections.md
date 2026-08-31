@@ -1,6 +1,6 @@
 # Getting Data Into Athletic Standard: The Connections Study
 
-**Researched August 2026.** Provider behavior changes; each section notes its sources. This is the living reference for what every connection path yields per provider and how Athletic Standard handles it. The governing decisions are D17–D22 in [`build-history/v1/decisions.md`](../build-history/v1/decisions.md). The frozen study those decisions rest on is [`build-history/v1/appendix/connections.md`](../build-history/v1/appendix/connections.md).
+**Researched August 2026.** Provider behavior changes; each section notes its sources. This is the living reference for what every connection path yields per provider and how Athletic Standard handles it. The governing decisions are D17–D22 in [`build-history/v0.1.0/decisions.md`](../build-history/v0.1.0/decisions.md). The frozen study those decisions rest on is [`build-history/v0.1.0/appendix/connections.md`](../build-history/v0.1.0/appendix/connections.md).
 
 ## The principle
 
@@ -89,7 +89,8 @@ Sources: openwearables.io provider quirks; sensai.fit Apple Health sync comparis
 | VO2 max, HR recovery, wrist temp | ✅ | ✅ |
 
 - **The exception to the lossiness rule:** for the Watch's *own* data, Apple Health *is* the direct connection — nothing is withheld. An Apple Watch athlete gets a complete Athletic Standard picture from Apple Health alone.
-- **The caveat:** Apple's HRV is SDNN; WHOOP/Oura/Garmin use RMSSD. Athletic Standard stores these as distinct types (`hrv_sdnn` vs `hrv_rmssd`) and they must never be baselined together.
+- **The caveat, and its way out:** Apple reports HRV as SDNN while WHOOP/Oura/Garmin report RMSSD, and the two must never be baselined together (`hrv_sdnn` vs `hrv_rmssd`). But Apple's export attaches the beat-by-beat readings to every SDNN record, so the importer computes RMSSD from them and marks it `derived` (D26). An Apple Watch wearer therefore does get a comparable statistic — which is the opposite of the situation for WHOOP, Oura, and Garmin via Apple Health, where the HRV data simply never crosses.
+- **Accuracy is a separate question from availability.** A better statistic from the same sensor is still that sensor's data: Apple Watch Series 9 and Ultra 2 underestimated HRV by 8.31 ms against a chest strap (about 29% error), while resting heart rate was accurate to within about 0.1 bpm. This is a reason for per-source baselines, not a reason to skip the beats.
 - **No cloud API exists.** On-device only: export.zip (manual, v1) or an app with HealthKit access (automated, v2). This is the only provider where automation inherently requires an iOS app.
 - **Athletic Standard handling:** v1 = export.zip importer (first-built, per decision D15). v2 = the iOS companion app (near-automatic: HealthKit background delivery → Athletic Standard file in iCloud Drive).
 
@@ -108,7 +109,7 @@ By device, best-first:
 
 | You wear | Today (v1) | When automation ships | Avoid |
 |---|---|---|---|
-| **Apple Watch** | Health app → Export All Health Data → `ath import export.zip` | the Athletic Standard iOS app (v2) | — (Apple Health is complete for you) |
+| **Apple Watch** | Health app → Export All Health Data → `ath import export.zip` (RMSSD included, derived from the beat lists) | the Athletic Standard iOS app (v2) | — (Apple Health is complete for you) |
 | **WHOOP** | WHOOP app → Data Export → `ath import whoop.csv` | OW connector or direct API pull | relying on Apple Health — you'd lose HRV, recovery, strain |
 | **Oura** | web dashboard → export → `ath import oura.csv` | direct pull with a personal access token (no OAuth app needed) or OW | relying on Apple Health — you'd lose HRV, RHR, readiness |
 | **Garmin** | Apple Health export for workouts/sleep (accept the HRV gap) | FIT importer; OW if you have API approval | expecting HRV via Apple Health |
@@ -120,7 +121,7 @@ Universal advice, stated in the README: a CSV or zip export has the data you nee
 
 | Tier | What | Status |
 |---|---|---|
-| 1 (v1) | Importers: Apple Health export.zip, WHOOP CSV, Oura CSV | in scope now |
+| 1 (v0.2.0) | Importers: Apple Health export.zip, WHOOP CSV, Oura CSV | ✅ shipped |
 | 2 (fast-follow) | `ath pull`: Oura personal-token pull (easiest), OW connector (multi-provider), WHOOP direct | designed-for (source kinds + dedup already in the spec) |
 | 2.5 (roadmap) | Garmin FIT importer | roadmap |
 | 3 (v2) | iOS companion app for Apple Watch users | v2 flagship |

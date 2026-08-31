@@ -5,6 +5,7 @@
 import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { AthleticStandardFile, type AthleticStandardFileT } from "./schema.js";
+import { validateAthleticStandardFile } from "./validate.js";
 
 export const FILE_SUFFIX = ".ath.json";
 export const DEFAULT_FILENAME = `athlete${FILE_SUFFIX}`;
@@ -39,14 +40,21 @@ export function loadFileRaw(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-/** Load and parse through the schema; throws with a readable message on failure. */
+/**
+ * Load and parse through the schema; throws with a readable message on failure.
+ *
+ * The message comes from the same explanation `ath check` gives, because a bare Zod
+ * union failure says only "Invalid input" — which tells the reader nothing about a
+ * file they are expected to be able to edit by hand.
+ */
 export function loadFile(path: string): AthleticStandardFileT {
-  const parsed = AthleticStandardFile.safeParse(loadFileRaw(path));
+  const raw = loadFileRaw(path);
+  const parsed = AthleticStandardFile.safeParse(raw);
   if (!parsed.success) {
-    const first = parsed.error.issues[0];
+    const first = validateAthleticStandardFile(raw).issues.find((i) => i.severity === "error");
     throw new Error(
-      `${path} is not a valid Athletic Standard file ` +
-        `(first problem at ${first?.path.join(".") || "root"}: ${first?.message}). ` +
+      `${path} is not a valid Athletic Standard file.\n` +
+        `  ${first?.path ?? "root"}: ${first?.message ?? "unreadable"}\n` +
         `Run \`ath check\` for the full list.`,
     );
   }

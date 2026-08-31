@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE HealthData [
+<!ELEMENT HealthData (ExportDate,Me,(Record|Correlation|Workout|ActivitySummary|ClinicalRecord)*)>
+]>
+<HealthData locale="en_US">
+ <ExportDate value="2026-08-10 09:00:00 -0700"/>
+ <Me HKCharacteristicTypeIdentifierBiologicalSex="HKBiologicalSexMale"/>
+
+ <!-- HRV with the beat list attached: the route to a real RMSSD. 68 beats. -->
+ <Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" sourceName="Apple Watch" unit="ms" startDate="2026-08-09 06:12:00 -0700" endDate="2026-08-09 06:13:01 -0700" value="52.3">
+  <HeartRateVariabilityMetadataList>
+   <InstantaneousBeatsPerMinute bpm="69" time="6:12:00.22"/>
+   <InstantaneousBeatsPerMinute bpm="74" time="6:12:01.02"/>
+   <InstantaneousBeatsPerMinute bpm="71" time="6:12:01.87"/>
+   <InstantaneousBeatsPerMinute bpm="64" time="6:12:02.81"/>
+   <InstantaneousBeatsPerMinute bpm="58" time="6:12:03.92"/>
+   <InstantaneousBeatsPerMinute bpm="57" time="6:12:04.97"/>
+   <InstantaneousBeatsPerMinute bpm="65" time="6:12:05.90"/>
+   <InstantaneousBeatsPerMinute bpm="63" time="6:12:06.86"/>
+   <InstantaneousBeatsPerMinute bpm="60" time="6:12:07.86"/>
+   <InstantaneousBeatsPerMinute bpm="57" time="6:12:08.92"/>
+   <InstantaneousBeatsPerMinute bpm="57" time="6:12:09.98"/>
+   <InstantaneousBeatsPerMinute bpm="61" time="6:12:10.97"/>
+   <InstantaneousBeatsPerMinute bpm="70" time="6:12:11.83"/>
+   <InstantaneousBeatsPerMinute bpm="68" time="6:12:12.71"/>
+   <InstantaneousBeatsPerMinute bpm="66" time="6:12:13.62"/>
+   <InstantaneousBeatsPerMinute bpm="64" time="6:12:14.56"/>
+   <InstantaneousBeatsPerMinute bpm="62" time="6:12:15.53"/>
+   <InstantaneousBeatsPerMinute bpm="59" time="6:12:16.55"/>
+   <InstantaneousBeatsPerMinute bpm="58" time="6:12:17.58"/>
+   <InstantaneousBeatsPerMinute bpm="60" time="6:12:18.58"/>
+   <InstantaneousBeatsPerMinute bpm="63" time="6:12:19.53"/>
+   <InstantaneousBeatsPerMinute bpm="67" time="6:12:20.43"/>
+   <InstantaneousBeatsPerMinute bpm="70" time="6:12:21.29"/>
+   <InstantaneousBeatsPerMinute bpm="72" time="6:12:22.12"/>
+   <InstantaneousBeatsPerMinute bpm="69" time="6:12:22.99"/>
+   <InstantaneousBeatsPerMinute bpm="65" time="6:12:23.91"/>
+   <InstantaneousBeatsPerMinute bpm="61" time="6:12:24.89"/>
+   <InstantaneousBeatsPerMinute bpm="58" time="6:12:25.92"/>
+   <InstantaneousBeatsPerMinute bpm="56" time="6:12:26.99"/>
+   <InstantaneousBeatsPerMinute bpm="59" time="6:12:28.01"/>
+   <InstantaneousBeatsPerMinute bpm="62" time="6:12:28.98"/>
+   <InstantaneousBeatsPerMinute bpm="66" time="6:12:29.89"/>
+   <InstantaneousBeatsPerMinute bpm="68" time="6:12:30.77"/>
+   <InstantaneousBeatsPerMinute bpm="66" time="6:12:31.68"/>
+   <InstantaneousBeatsPerMinute bpm="63" time="6:12:32.63"/>
+   <InstantaneousBeatsPerMinute bpm="60" time="6:12:33.63"/>
+   <InstantaneousBeatsPerMinute bpm="57" time="6:12:34.68"/>
+   <InstantaneousBeatsPerMinute bpm="57" time="6:12:35.73"/>
+   <InstantaneousBeatsPerMinute bpm="60" time="6:12:36.73"/>
+   <InstantaneousBeatsPerMinute bpm="64" time="6:12:37.67"/>
+   <InstantaneousBeatsPerMinute bpm="68" time="6:12:38.55"/>
+   <InstantaneousBeatsPerMinute bpm="71" time="6:12:39.40"/>
+   <InstantaneousBeatsPerMinute bpm="69" time="6:12:40.27"/>
+   <InstantaneousBeatsPerMinute bpm="66" time="6:12:41.18"/>
+   <InstantaneousBeatsPerMinute bpm="62" time="6:12:42.15"/>
+   <InstantaneousBeatsPerMinute bpm="59" time="6:12:43.17"/>
+   <InstantaneousBeatsPerMinute bpm="57" time="6:12:44.22"/>
+   <InstantaneousBeatsPerMinute bpm="58" time="6:12:45.25"/>
+   <InstantaneousBeatsPerMinute bpm="61" time="6:12:46.24"/>
+   <InstantaneousBeatsPerMinute bpm="65" time="6:12:47.16"/>
+   <InstantaneousBeatsPerMinute bpm="69" time="6:12:48.03"/>
+   <InstantaneousBeatsPerMinute bpm="70" time="6:12:48.89"/>
+   <InstantaneousBeatsPerMinute bpm="67" time="6:12:49.78"/>
+   <InstantaneousBeatsPerMinute bpm="64" time="6:12:50.72"/>
+   <InstantaneousBeatsPerMinute bpm="61" time="6:12:51.70"/>
+   <InstantaneousBeatsPerMinute bpm="58" time="6:12:52.73"/>
+   <InstantaneousBeatsPerMinute bpm="57" time="6:12:53.78"/>
+   <InstantaneousBeatsPerMinute bpm="59" time="6:12:54.80"/>
+   <InstantaneousBeatsPerMinute bpm="63" time="6:12:55.75"/>
+   <InstantaneousBeatsPerMinute bpm="67" time="6:12:56.64"/>
+   <InstantaneousBeatsPerMinute bpm="70" time="6:12:57.50"/>
+   <InstantaneousBeatsPerMinute bpm="68" time="6:12:58.38"/>
+   <InstantaneousBeatsPerMinute bpm="65" time="6:12:59.30"/>
+   <InstantaneousBeatsPerMinute bpm="62" time="6:13:00.27"/>
+   <InstantaneousBeatsPerMinute bpm="60" time="6:13:01.27"/>
+  </HeartRateVariabilityMetadataList>
+ </Record>
+
+ <!-- A second HRV window with too few beats: must yield no derived RMSSD. -->
+ <Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" sourceName="Apple Watch" unit="ms" startDate="2026-08-09 22:30:00 -0700" endDate="2026-08-09 22:30:06 -0700" value="41.8">
+  <HeartRateVariabilityMetadataList>
+   <InstantaneousBeatsPerMinute bpm="64" time="22:30:00.10"/>
+   <InstantaneousBeatsPerMinute bpm="66" time="22:30:01.04"/>
+   <InstantaneousBeatsPerMinute bpm="63" time="22:30:01.95"/>
+   <InstantaneousBeatsPerMinute bpm="61" time="22:30:02.90"/>
+  </HeartRateVariabilityMetadataList>
+ </Record>
+
+ <Record type="HKQuantityTypeIdentifierRestingHeartRate" sourceName="Apple Watch" unit="count/min" startDate="2026-08-09 06:14:00 -0700" endDate="2026-08-09 06:14:00 -0700" value="51"/>
+ <Record type="HKQuantityTypeIdentifierWalkingHeartRateAverage" sourceName="Apple Watch" unit="count/min" startDate="2026-08-09 12:00:00 -0700" endDate="2026-08-09 12:00:00 -0700" value="94"/>
+ <Record type="HKQuantityTypeIdentifierHeartRateRecoveryOneMinute" sourceName="Apple Watch" unit="count/min" startDate="2026-08-09 18:45:00 -0700" endDate="2026-08-09 18:45:00 -0700" value="34"/>
+ <Record type="HKQuantityTypeIdentifierRespiratoryRate" sourceName="Apple Watch" unit="count/min" startDate="2026-08-09 06:10:00 -0700" endDate="2026-08-09 06:10:00 -0700" value="14.5"/>
+
+ <!-- Pounds, so the importer has to convert. 181.4 lb = 82.28 kg. -->
+ <Record type="HKQuantityTypeIdentifierBodyMass" sourceName="Withings" unit="lb" startDate="2026-08-09 07:02:00 -0700" endDate="2026-08-09 07:02:00 -0700" value="181.4"/>
+
+ <Record type="HKQuantityTypeIdentifierVO2Max" sourceName="Apple Watch" unit="mL/min·kg" startDate="2026-08-09 18:50:00 -0700" endDate="2026-08-09 18:50:00 -0700" value="52.1"/>
+
+ <!-- Wrist temperature: a distinct type from body temperature, not the same signal. -->
+ <Record type="HKQuantityTypeIdentifierAppleSleepingWristTemperature" sourceName="Apple Watch" unit="degC" startDate="2026-08-09 03:00:00 -0700" endDate="2026-08-09 03:00:00 -0700" value="33.4"/>
+ <Record type="HKQuantityTypeIdentifierBodyTemperature" sourceName="Manual" unit="degC" startDate="2026-08-09 08:00:00 -0700" endDate="2026-08-09 08:00:00 -0700" value="36.7"/>
+
+ <!-- Apple stores saturation as a fraction; the format keeps a percentage. -->
+ <Record type="HKQuantityTypeIdentifierOxygenSaturation" sourceName="Apple Watch" unit="%" startDate="2026-08-09 04:00:00 -0700" endDate="2026-08-09 04:00:00 -0700" value="0.97"/>
+
+ <!-- Sleep: overlapping stage records that must cluster into one night. -->
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Apple Watch" startDate="2026-08-08 22:15:00 -0700" endDate="2026-08-09 06:05:00 -0700" value="HKCategoryValueSleepAnalysisInBed"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Apple Watch" startDate="2026-08-08 22:30:00 -0700" endDate="2026-08-09 00:30:00 -0700" value="HKCategoryValueSleepAnalysisAsleepCore"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Apple Watch" startDate="2026-08-09 00:30:00 -0700" endDate="2026-08-09 01:45:00 -0700" value="HKCategoryValueSleepAnalysisAsleepDeep"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Apple Watch" startDate="2026-08-09 01:45:00 -0700" endDate="2026-08-09 02:00:00 -0700" value="HKCategoryValueSleepAnalysisAwake"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Apple Watch" startDate="2026-08-09 02:00:00 -0700" endDate="2026-08-09 03:30:00 -0700" value="HKCategoryValueSleepAnalysisAsleepREM"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Apple Watch" startDate="2026-08-09 03:30:00 -0700" endDate="2026-08-09 06:00:00 -0700" value="HKCategoryValueSleepAnalysisAsleepCore"/>
+
+ <!-- Dense samples: these belong in sidecar files, not the document. -->
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Apple Watch" unit="count/min" startDate="2026-08-09 08:00:00 -0700" endDate="2026-08-09 08:00:00 -0700" value="62"/>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Apple Watch" unit="count/min" startDate="2026-08-09 08:05:00 -0700" endDate="2026-08-09 08:05:00 -0700" value="64"/>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Apple Watch" unit="count/min" startDate="2026-08-09 08:10:00 -0700" endDate="2026-08-09 08:10:00 -0700" value="71"/>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Apple Watch" unit="count/min" startDate="2026-08-09 18:30:00 -0700" endDate="2026-08-09 18:30:00 -0700" value="158"/>
+ <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-08-09 09:00:00 -0700" endDate="2026-08-09 09:05:00 -0700" value="420"/>
+ <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-08-09 09:05:00 -0700" endDate="2026-08-09 09:10:00 -0700" value="380"/>
+ <Record type="HKQuantityTypeIdentifierActiveEnergyBurned" sourceName="Apple Watch" unit="kcal" startDate="2026-08-09 18:30:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="12.4"/>
+
+ <!-- Distance split by modality: a triathlete's disciplines stay separate. -->
+ <Record type="HKQuantityTypeIdentifierDistanceWalkingRunning" sourceName="Apple Watch" unit="mi" startDate="2026-08-09 18:30:00 -0700" endDate="2026-08-09 18:40:00 -0700" value="1.24"/>
+ <Record type="HKQuantityTypeIdentifierDistanceCycling" sourceName="Apple Watch" unit="km" startDate="2026-08-09 17:00:00 -0700" endDate="2026-08-09 17:30:00 -0700" value="14.2"/>
+ <Record type="HKQuantityTypeIdentifierDistanceSwimming" sourceName="Apple Watch" unit="yd" startDate="2026-08-09 16:00:00 -0700" endDate="2026-08-09 16:20:00 -0700" value="1200"/>
+
+ <!-- Body composition and cardiovascular measurements. -->
+ <Record type="HKQuantityTypeIdentifierLeanBodyMass" sourceName="Withings" unit="lb" startDate="2026-08-09 07:02:00 -0700" endDate="2026-08-09 07:02:00 -0700" value="148.2"/>
+ <Record type="HKQuantityTypeIdentifierBodyFatPercentage" sourceName="Withings" unit="%" startDate="2026-08-09 07:02:00 -0700" endDate="2026-08-09 07:02:00 -0700" value="0.182"/>
+ <Record type="HKQuantityTypeIdentifierHeight" sourceName="Manual" unit="ft" startDate="2026-08-09 07:00:00 -0700" endDate="2026-08-09 07:00:00 -0700" value="5.9"/>
+ <Record type="HKQuantityTypeIdentifierBloodPressureSystolic" sourceName="Omron" unit="mmHg" startDate="2026-08-09 07:10:00 -0700" endDate="2026-08-09 07:10:00 -0700" value="118"/>
+ <Record type="HKQuantityTypeIdentifierBloodPressureDiastolic" sourceName="Omron" unit="mmHg" startDate="2026-08-09 07:10:00 -0700" endDate="2026-08-09 07:10:00 -0700" value="74"/>
+
+ <!-- Running dynamics, recorded stride by stride during an outdoor run. -->
+ <Record type="HKQuantityTypeIdentifierRunningSpeed" sourceName="Apple Watch" unit="m/s" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="3.42"/>
+ <Record type="HKQuantityTypeIdentifierRunningSpeed" sourceName="Apple Watch" unit="km/hr" startDate="2026-08-09 18:32:00 -0700" endDate="2026-08-09 18:32:00 -0700" value="12.6"/>
+ <Record type="HKQuantityTypeIdentifierRunningPower" sourceName="Apple Watch" unit="W" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="284"/>
+ <Record type="HKQuantityTypeIdentifierRunningStrideLength" sourceName="Apple Watch" unit="m" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="1.18"/>
+ <Record type="HKQuantityTypeIdentifierRunningVerticalOscillation" sourceName="Apple Watch" unit="cm" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="8.4"/>
+ <Record type="HKQuantityTypeIdentifierRunningGroundContactTime" sourceName="Apple Watch" unit="ms" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="243"/>
+
+ <!-- Training load. -->
+ <Record type="HKQuantityTypeIdentifierPhysicalEffort" sourceName="Apple Watch" unit="kcal/hr·kg" startDate="2026-08-09 18:31:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="9.4"/>
+ <Record type="HKQuantityTypeIdentifierBasalEnergyBurned" sourceName="Apple Watch" unit="Cal" startDate="2026-08-09 08:00:00 -0700" endDate="2026-08-09 09:00:00 -0700" value="72.4"/>
+ <Record type="HKQuantityTypeIdentifierAppleExerciseTime" sourceName="Apple Watch" unit="min" startDate="2026-08-09 18:30:00 -0700" endDate="2026-08-09 18:31:00 -0700" value="1"/>
+ <Record type="HKQuantityTypeIdentifierFlightsClimbed" sourceName="iPhone" unit="count" startDate="2026-08-09 12:00:00 -0700" endDate="2026-08-09 12:05:00 -0700" value="4"/>
+
+ <!-- Gait. Walking quality matters for an athlete too. -->
+ <Record type="HKQuantityTypeIdentifierWalkingSpeed" sourceName="iPhone" unit="m/s" startDate="2026-08-09 12:00:00 -0700" endDate="2026-08-09 12:05:00 -0700" value="1.42"/>
+ <Record type="HKQuantityTypeIdentifierWalkingStepLength" sourceName="iPhone" unit="cm" startDate="2026-08-09 12:00:00 -0700" endDate="2026-08-09 12:05:00 -0700" value="78"/>
+ <Record type="HKQuantityTypeIdentifierWalkingAsymmetryPercentage" sourceName="iPhone" unit="%" startDate="2026-08-09 12:00:00 -0700" endDate="2026-08-09 12:05:00 -0700" value="0.014"/>
+ <Record type="HKQuantityTypeIdentifierTimeInDaylight" sourceName="Apple Watch" unit="min" startDate="2026-08-09 12:00:00 -0700" endDate="2026-08-09 13:00:00 -0700" value="46"/>
+
+ <!-- Must be counted as skipped, never guessed at. -->
+ <Record type="HKQuantityTypeIdentifierHeadphoneAudioExposure" sourceName="iPhone" unit="dBASPL" startDate="2026-08-09 14:00:00 -0700" endDate="2026-08-09 14:30:00 -0700" value="72.5"/>
+ <Record type="HKQuantityTypeIdentifierDietaryCaffeine" sourceName="MyFitnessPal" unit="mg" startDate="2026-08-09 07:30:00 -0700" endDate="2026-08-09 07:30:00 -0700" value="95"/>
+ <!-- Diagnostic findings stay out: this is not medical advice. -->
+ <Record type="HKQuantityTypeIdentifierAtrialFibrillationBurden" sourceName="Apple Watch" unit="%" startDate="2026-08-09 03:00:00 -0700" endDate="2026-08-09 04:00:00 -0700" value="0.02"/>
+ <!-- A unit we do not recognize must be reported, never assumed. -->
+ <Record type="HKQuantityTypeIdentifierRunningPower" sourceName="Apple Watch" unit="horsepower" startDate="2026-08-09 18:33:00 -0700" endDate="2026-08-09 18:33:00 -0700" value="0.38"/>
+ <ClinicalRecord type="Immunization" identifier="abc-123" sourceName="Epic" sourceURL="https://example.invalid" fhirVersion="4.0.1" receivedDate="2026-01-01 00:00:00 -0700" resourceFilePath="/dev/null"/>
+
+ <!-- A workout with laps the wearer set deliberately: those are kept as the segments. -->
+ <Workout workoutActivityType="HKWorkoutActivityTypeFunctionalStrengthTraining" duration="42.5" durationUnit="min" totalDistance="1.24" totalDistanceUnit="mi" totalEnergyBurned="412" totalEnergyBurnedUnit="kcal" sourceName="Apple Watch" startDate="2026-08-09 18:00:00 -0700" endDate="2026-08-09 18:42:30 -0700">
+  <MetadataEntry key="HKAverageHeartRate" value="142"/>
+  <MetadataEntry key="HKMaximumHeartRate" value="178"/>
+  <WorkoutEvent type="HKWorkoutEventTypeLap" date="2026-08-09 18:10:00 -0700" duration="10.0" durationUnit="min"/>
+  <WorkoutEvent type="HKWorkoutEventTypeLap" date="2026-08-09 18:20:00 -0700" duration="9.5" durationUnit="min"/>
+ </Workout>
+
+ <!-- An outdoor run with no laps: its segments come from the GPS route. -->
+ <Workout workoutActivityType="HKWorkoutActivityTypeRunning" duration="18.0" durationUnit="min" totalDistance="2.4" totalDistanceUnit="km" totalEnergyBurned="238" totalEnergyBurnedUnit="kcal" sourceName="Apple Watch" startDate="2026-08-09 19:00:00 -0700" endDate="2026-08-09 19:18:00 -0700">
+  <MetadataEntry key="HKAverageHeartRate" value="156"/>
+  <MetadataEntry key="HKMaximumHeartRate" value="181"/>
+ </Workout>
+</HealthData>

@@ -3,3 +3,7 @@ export * from "./validate.js";
 export * from "./file.js";
 export * from "./benchmarks.js";
 export * from "./stats.js";
+export * from "./series.js";
+export * from "./seriesview.js";
+export * from "./hrv.js";
+export * from "./import/index.js";

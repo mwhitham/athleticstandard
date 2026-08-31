@@ -44,6 +44,14 @@ export const Source = z
       .string()
       .optional()
       .describe("e.g. whoop, oura, apple, garmin — omit for kind=manual"),
+    sensor: z
+      .string()
+      .optional()
+      .describe(
+        "Which sensor within the device, when one device has several with different " +
+          "accuracy — e.g. 'ecg' versus the optical sensor on the same watch. Separate " +
+          "sensors get separate sources so their baselines never pool.",
+      ),
     detail: z
       .string()
       .optional()
@@ -61,6 +69,12 @@ export const Source = z
 /**
  * Canonical units per point-measurement type, adopted verbatim from
  * Open Wearables' unit table (HRV in ms, HR in bpm, mass in kg, etc.).
+ *
+ * The four temperature types are deliberately separate (D28). Wrist and core
+ * temperature move in opposite directions — the core cools during sleep because
+ * the extremities warm and shed heat — so one type would invite one baseline,
+ * and averaging them cancels the signal out. Oura's deviation is a third thing
+ * again: a delta from that vendor's own baseline, not a temperature.
  */
 export const POINT_MEASUREMENT_UNITS = {
   hrv_rmssd: "ms",
@@ -68,19 +82,74 @@ export const POINT_MEASUREMENT_UNITS = {
   resting_heart_rate: "bpm",
   body_weight: "kg",
   respiratory_rate: "brpm",
+  vo2_max: "ml/kg/min",
+  hr_recovery: "bpm",
+  walking_heart_rate: "bpm",
+  oxygen_saturation: "%",
+  body_temperature: "°C",
+  skin_temperature: "°C",
+  wrist_temperature_sleeping: "°C",
+  temperature_deviation: "°C",
+  height: "cm",
+  lean_body_mass: "kg",
+  body_fat_percentage: "%",
+  // Cardiovascular, and performance-relevant: blood pressure bears on the load a
+  // session imposes and is standard in athlete screening. Diagnostic findings such
+  // as atrial fibrillation burden stay out of the format — not medical advice.
+  blood_pressure_systolic: "mmHg",
+  blood_pressure_diastolic: "mmHg",
 } as const;
 
 export type PointMeasurementType = keyof typeof POINT_MEASUREMENT_UNITS;
 
+/**
+ * Types whose value may be negative or zero. Only deltas qualify: a deviation
+ * of −0.3 °C is an ordinary reading, whereas a heart rate of 0 is not.
+ */
+const SIGNED_POINT_TYPES = new Set<PointMeasurementType>(["temperature_deviation"]);
+
+/**
+ * Recorded on a value this tool computed rather than read from a device (D26).
+ * Enough detail to reproduce or dispute the number, so a derived reading is
+ * never mistaken for a device-reported one.
+ */
+export const DerivedFrom = z
+  .strictObject({
+    from: z.string().describe("Series quantity the value was computed from, e.g. 'hrv_beats'"),
+    method: z.string().describe("Computation applied, e.g. 'rmssd'"),
+    window_s: z.number().positive().optional().describe("Length of the window used, in seconds"),
+    n_beats: z.number().int().positive().optional().describe("Usable samples the value rests on"),
+    n_dropped: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe("Samples discarded as implausible before computing"),
+    signal_quality: z
+      .number()
+      .positive()
+      .optional()
+      .describe(
+        "How far the signal stood above the background. Noise degrades the timing of " +
+          "each beat rather than the count, so it inflates variability: a reader can " +
+          "discount a low figure instead of treating every reading alike.",
+      ),
+  })
+  .describe(
+    "Present when this tool computed the value instead of reading it from the device. " +
+      "Absent means the device reported it.",
+  );
+
 const pointVariant = <T extends PointMeasurementType>(type: T) =>
   z.strictObject({
     type: z.literal(type),
-    value: z.number().positive(),
+    value: SIGNED_POINT_TYPES.has(type) ? z.number() : z.number().positive(),
     unit: z
       .literal(POINT_MEASUREMENT_UNITS[type])
       .describe("Fixed canonical unit for this type — no ambiguous values"),
     recorded_at: Timestamp,
     source: Id.describe("Reference to sources[].id"),
+    derived: DerivedFrom.optional(),
     note: z.string().optional(),
   });
 
@@ -92,6 +161,19 @@ export const PointMeasurement = z
     pointVariant("resting_heart_rate"),
     pointVariant("body_weight"),
     pointVariant("respiratory_rate"),
+    pointVariant("vo2_max"),
+    pointVariant("hr_recovery"),
+    pointVariant("walking_heart_rate"),
+    pointVariant("oxygen_saturation"),
+    pointVariant("body_temperature"),
+    pointVariant("skin_temperature"),
+    pointVariant("wrist_temperature_sleeping"),
+    pointVariant("temperature_deviation"),
+    pointVariant("height"),
+    pointVariant("lean_body_mass"),
+    pointVariant("body_fat_percentage"),
+    pointVariant("blood_pressure_systolic"),
+    pointVariant("blood_pressure_diastolic"),
   ])
   .describe("A single timestamped device measurement with a fixed canonical unit");
 
@@ -137,6 +219,11 @@ export const WorkoutSession = z.strictObject({
     max_hr_bpm: z.number().positive().optional(),
     energy_kcal: z.number().nonnegative().optional(),
     distance_m: z.number().nonnegative().optional(),
+    elevation_gain_m: z
+      .number()
+      .nonnegative()
+      .optional()
+      .describe("Total climbing, summed from the positive rises along the route"),
   }),
   segments: z
     .array(WorkoutSegment)
@@ -174,8 +261,149 @@ export const BenchmarkResult = z.strictObject({
   note: z.string().optional(),
 });
 
+/**
+ * Canonical units per series quantity. Distance is split by modality (D29):
+ * a triathlete's swim, bike, and run are separate questions, and a single
+ * total cannot say which discipline went wrong.
+ *
+ * The running group (D32) is what a device records stride by stride during a run.
+ * These are the measurements that separate "slow because unrecovered" from "slow
+ * because form fell apart late", which is the distinction a benchmark prediction
+ * on a run or a HYROX has to make.
+ */
+export const SERIES_QUANTITY_UNITS = {
+  heart_rate: "bpm",
+  hrv_beats: "ms",
+  // Intervals timed electrically from an ECG waveform, which is the reference
+  // standard. Named apart from hrv_beats because optical and electrical beat
+  // detection are different measurements with very different accuracy.
+  ecg_beats: "ms",
+  steps: "count",
+  active_energy: "kcal",
+  distance_walking_running: "m",
+  distance_cycling: "m",
+  distance_swimming: "m",
+
+  // Running dynamics, recorded per stride during outdoor runs.
+  running_speed: "m/s",
+  running_power: "W",
+  running_stride_length: "m",
+  running_vertical_oscillation: "cm",
+  running_ground_contact_time: "ms",
+
+  // Training load.
+  physical_effort: "MET",
+  basal_energy: "kcal",
+  exercise_time: "min",
+  flights_climbed: "count",
+
+  // Gait. Walking quality is a real signal for a trained athlete too, and
+  // asymmetry in particular is a plausible early sign of injury.
+  walking_speed: "m/s",
+  walking_step_length: "m",
+  walking_asymmetry_percentage: "%",
+
+  // Light exposure drives circadian timing, which drives sleep.
+  time_in_daylight: "min",
+} as const;
+
+export type SeriesQuantity = keyof typeof SERIES_QUANTITY_UNITS;
+
+export const SeriesQuantityEnum = z.enum(
+  Object.keys(SERIES_QUANTITY_UNITS) as [SeriesQuantity, ...SeriesQuantity[]],
+);
+
+/**
+ * What the document says about a dense sample stream held in sibling files
+ * (D25, narrowed by D40).
+ *
+ * All-day heart rate, per-second workout heart rate, and beat-to-beat intervals
+ * would add roughly 22 MB a year to a document measured at 0.43 MB, which stops
+ * it being readable in a text editor. So the samples live in `series/`, one file
+ * per quantity per day per source, nothing averaged or downsampled.
+ *
+ * One record covers a whole quantity rather than a single day. Per-day records
+ * solved the sample problem and then recreated it: a real Apple import produced
+ * 24,448 of them and a 10.5 MB document, about 3 million tokens, which no agent
+ * can read at any context size. Grouped, the same import needs 18 records and a
+ * few kilobytes, and the size no longer grows with the length of the history.
+ *
+ * `days` and `n` are here to describe coverage to a reader. They play no part in
+ * verification — `sha256` does that alone.
+ */
+export const SeriesRef = z
+  .strictObject({
+    type: z.literal("series_ref"),
+    quantity: SeriesQuantityEnum,
+    unit: z.string().describe("Canonical unit for the quantity"),
+    source: Id.describe("Reference to sources[].id"),
+    from: CalendarDate.describe("First day with samples"),
+    to: CalendarDate.describe("Last day with samples"),
+    days: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe("Days that have a sidecar. Not every day between `from` and `to` need have one"),
+    n: z.number().int().nonnegative().describe("Total samples across those days"),
+    sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .describe("Hash over each day's sidecar hash, in date order"),
+    note: z.string().optional(),
+  })
+  .describe(
+    "Coverage of a dense sample series stored in sibling files, one per day. " +
+      "Individual days are found by name, not listed here.",
+  );
+
+/** The shape of a sidecar file: parallel arrays, offsets in milliseconds. */
+export const SeriesFile = z
+  .strictObject({
+    athleticstandard_version: z.string().regex(/^\d+\.\d+\.\d+$/, "semver"),
+    quantity: SeriesQuantityEnum,
+    unit: z.string(),
+    start: Timestamp,
+    source: Id,
+    offsets_ms: z
+      .array(z.number().int().nonnegative())
+      .describe("Milliseconds from `start`, ascending. Milliseconds because beat intervals are ~850ms apart"),
+    values: z.array(z.number()),
+  })
+  .refine((s) => s.offsets_ms.length === s.values.length, {
+    message: "offsets_ms and values must be the same length — they are parallel arrays",
+    path: ["values"],
+  })
+  .describe("A dense sample series: offsets_ms and values are parallel arrays of equal length");
+
+/**
+ * A number a vendor computed, not a number a sensor measured (D27).
+ *
+ * WHOOP recovery and strain, Oura readiness and sleep score. Kept because the
+ * athlete owns them, held apart because they are proprietary composites on
+ * per-vendor scales. They may corroborate a prediction; the predicted number
+ * comes from measurements (D9).
+ */
+export const VendorScore = z
+  .strictObject({
+    type: z.literal("vendor_score"),
+    metric: z
+      .string()
+      .describe("Vendor's name for the score, e.g. 'recovery', 'strain', 'readiness'"),
+    value: z.number(),
+    scale: z
+      .string()
+      .describe("The range it is read against, e.g. '0-100' or '0-21'. A bare number is meaningless"),
+    recorded_at: Timestamp,
+    source: Id.describe("Reference to sources[].id"),
+    note: z.string().optional(),
+  })
+  .describe(
+    "A vendor-computed composite score. Device-produced, so it carries a source, " +
+      "but it is not a measurement and must not drive a predicted number on its own.",
+  );
+
 export const HardSignal = z
-  .union([PointMeasurement, SleepSession, WorkoutSession, BenchmarkResult])
+  .union([PointMeasurement, SleepSession, WorkoutSession, BenchmarkResult, SeriesRef, VendorScore])
   .describe(
     "Tier 1: device-measured, high trust. Drives predictions. " +
       "Every hard signal must reference a source.",
@@ -320,7 +548,7 @@ export const Athlete = z.strictObject({
     .describe("Display preference only — stored values are always canonical (metric) units"),
 });
 
-export const ATHLETIC_STANDARD_VERSION = "0.1.0";
+export const ATHLETIC_STANDARD_VERSION = "0.2.0";
 
 export const AthleticStandardFile = z
   .strictObject({
@@ -348,3 +576,9 @@ export type SoftSignalT = z.infer<typeof SoftSignal>;
 export type BenchmarkT = z.infer<typeof Benchmark>;
 export type PredictionT = z.infer<typeof Prediction>;
 export type ScoreT = z.infer<typeof Score>;
+export type PointMeasurementT = z.infer<typeof PointMeasurement>;
+export type SoftSignalTypeT = z.infer<typeof SoftSignalType>;
+export type SeriesRefT = z.infer<typeof SeriesRef>;
+export type SeriesFileT = z.infer<typeof SeriesFile>;
+export type VendorScoreT = z.infer<typeof VendorScore>;
+export type DerivedFromT = z.infer<typeof DerivedFrom>;

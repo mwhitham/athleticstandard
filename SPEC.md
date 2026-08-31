@@ -1,4 +1,4 @@
-# The Athletic Standard Format — Specification v0.1.0
+# The Athletic Standard Format — Specification v0.2.0
 
 **Status:** draft · **File extension:** `.ath.json` · **Schema:** [`schema/athleticstandard.schema.json`](schema/athleticstandard.schema.json) (JSON Schema draft 2020-12, generated from the Zod definitions in [`src/schema.ts`](src/schema.ts), which are normative)
 
@@ -10,13 +10,14 @@ Athletic Standard is an open, local-first file format for a functional-fitness a
 2. **The two-tier wall.** Device-measured data (*hard signals*) and self-reported data (*soft signals*) never mix, and the separation is structural, not conventional: hard signals **must** carry provenance (a `source` reference); soft signals **cannot** (the field does not exist, and objects reject unknown keys). An agent reading the file always knows which numbers were measured and which were self-reported.
 3. **Predictions live in the file.** An agent's predictions are written into the document before the attempt and graded after, so the file keeps a record of whether each prediction was right.
 4. **Canonical units, no ambiguity.** Every measurement type has exactly one unit, adopted from [Open Wearables](https://github.com/the-momentum/open-wearables)' canonical table. There are no unitless `value` fields.
-5. **Append-friendly, diff-friendly.** Arrays of timestamped records, stable field order, pure text. Photos live in a sibling `attachments/` folder, referenced by filename and content hash; the file itself never embeds binary data.
+5. **Append-friendly, diff-friendly.** Arrays of timestamped records, stable field order, pure text. Photos live in a sibling `attachments/` folder and dense sample streams in a sibling `series/` folder, both referenced by filename and content hash; the document itself never embeds binary data or millions of samples.
+6. **Readings from different devices are never merged.** Every measurement keeps the source that produced it, and baselines are computed per source. Two devices disagree by more than the change a prediction is trying to read, so averaging them would describe neither.
 
 ## Top-level structure
 
 ```json
 {
-  "athleticstandard_version": "0.1.0",
+  "athleticstandard_version": "0.2.0",
   "athlete": { },
   "sources": [ ],
   "hard_signals": [ ],
@@ -56,13 +57,16 @@ Every hard signal references a source by id. This registry is what makes "measur
 | `id` | yes | id | unique within the file, e.g. `whoop-1` |
 | `kind` | yes | `wearable` \| `export_file` \| `connector` \| `manual` | |
 | `vendor` | no | string | `whoop`, `oura`, `apple`, `garmin`, … |
+| `sensor` | no | string | which sensor within the device, when one device has several |
 | `detail` | no | string | human-readable, e.g. `"WHOOP 4.0 via CSV export 2026-08-09"` |
+
+**`sensor`** exists because one device can hold sensors of very different accuracy. An Apple Watch times heartbeats optically all day and electrically when the wearer takes an ECG; the electrical figure is the reference standard while the optical one carries roughly 29% error. Those get separate sources — `apple-1` and `apple-ecg-1` — so their baselines never pool, for the same reason two different devices do not pool.
 
 **The `manual` kind** exists so a typed-in number ("my HRV was 54 this morning") can be stored as a measurement *without claiming device provenance*. Agents should weight `manual`-sourced hard signals below device-sourced ones. Writing a typed-in number under a device source is a spec violation.
 
 ## `hard_signals` — Tier 1, measured
 
-Four record shapes. Every record has a `source` reference and an optional `note`.
+Six record shapes. Every record has a `source` reference and an optional `note`.
 
 ### Point measurements
 
@@ -73,15 +77,152 @@ A single timestamped reading.
   "recorded_at": "2026-08-09T06:12:00Z", "source": "whoop-1" }
 ```
 
-| `type` | Canonical unit |
-|---|---|
-| `hrv_rmssd` | `ms` |
-| `hrv_sdnn` | `ms` |
-| `resting_heart_rate` | `bpm` |
-| `body_weight` | `kg` |
-| `respiratory_rate` | `brpm` |
+| `type` | Canonical unit | Notes |
+|---|---|---|
+| `hrv_rmssd` | `ms` | |
+| `hrv_sdnn` | `ms` | a different statistic from RMSSD; never share a baseline |
+| `resting_heart_rate` | `bpm` | |
+| `walking_heart_rate` | `bpm` | a walking average, not a resting value |
+| `hr_recovery` | `bpm` | one-minute drop after effort |
+| `body_weight` | `kg` | |
+| `respiratory_rate` | `brpm` | |
+| `vo2_max` | `ml/kg/min` | |
+| `oxygen_saturation` | `%` | |
+| `body_temperature` | `°C` | an actual body temperature |
+| `skin_temperature` | `°C` | measured at the skin |
+| `wrist_temperature_sleeping` | `°C` | overnight wrist measurement |
+| `temperature_deviation` | `°C` | a signed delta from a vendor baseline |
+| `height` | `cm` | |
+| `lean_body_mass` | `kg` | |
+| `body_fat_percentage` | `%` | |
+| `blood_pressure_systolic` | `mmHg` | |
+| `blood_pressure_diastolic` | `mmHg` | |
+
+Blood pressure is here because it is a cardiovascular measurement that bears on the load a session imposes, and it is standard in athlete screening. Diagnostic findings are a different thing and stay out of the format: atrial fibrillation burden, low-heart-rate events, and walking steadiness are conclusions about disease, and this format is not medical advice.
 
 The `unit` field is mandatory and must equal the canonical unit — it is redundant on purpose, so a record read in isolation is never ambiguous.
+
+**Why four temperature types.** They are not interchangeable. Core temperature falls during sleep because the extremities warm and shed heat, so wrist temperature runs roughly an hour ahead of core and inverted, with a daily swing of about 6 °C. A wrist reading is a circadian marker, not a thermometer for the body. Averaging these together would cancel out the signal. `temperature_deviation` is a fourth thing again: a difference from a personal baseline, meaningless if read as a temperature.
+
+`temperature_deviation` is the only point type whose value may be negative or zero. Every other reading is positive.
+
+#### `derived` — values this tool computed
+
+A point measurement may carry a `derived` block, meaning the value was computed here rather than reported by the device:
+
+```json
+{ "type": "hrv_rmssd", "value": 44.2, "unit": "ms",
+  "recorded_at": "2026-08-09T06:12:00-07:00", "source": "apple-1",
+  "derived": { "from": "hrv_beats", "method": "rmssd", "window_s": 61,
+               "n_beats": 68, "n_dropped": 2 } }
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `from` | yes | series quantity the value was computed from |
+| `method` | yes | computation applied, e.g. `rmssd` |
+| `window_s` | no | length of the window used |
+| `n_beats` | no | usable samples the value rests on |
+| `n_dropped` | no | samples discarded as implausible |
+| `signal_quality` | no | how far the signal stood above the background |
+
+`signal_quality` is worth carrying because noise degrades the *timing* of each beat rather than the count of them, so it inflates variability rather than reducing it. On a synthetic recording where every beat was found, added noise pushed RMSSD from 25 ms to 33 ms through jitter alone. A reader given this figure can discount a poor recording.
+
+The block records enough to reproduce or dispute the number. Absence of `derived` means the device reported the value. Agents should weight a derived value by the receipts it carries, and the validator requires the cited series to be present in the file for the same source and day.
+
+### `series_ref` — coverage of dense samples held in sibling files
+
+Heart rate all day, one sample per second inside a workout, and beat-to-beat intervals are streams rather than readings. Keeping them inline would add roughly 22 MB a year to a document measured at 0.43 MB, so they live in sibling files.
+
+One record describes a whole quantity, not a single day:
+
+```json
+{ "type": "series_ref", "quantity": "heart_rate", "unit": "bpm",
+  "source": "apple-1", "from": "2023-06-01", "to": "2026-08-30",
+  "days": 1120, "n": 410131, "sha256": "d7c1f30127…" }
+```
+
+| Field | Notes |
+|---|---|
+| `from`, `to` | first and last day with samples |
+| `days` | days that have a file; not every day in the span need have one |
+| `n` | total samples across those days |
+| `sha256` | hash over each day's hash, in date order |
+
+Per-day records were the first design and they recreated the problem sidecars existed to solve. A real import produced 24,448 of them and a 10.5 MB document, about 3 million tokens, which no agent can read. Grouped, the same data needs 18 records and 8 KB, and the size stops growing with the length of the history.
+
+`days` and `n` describe coverage to a reader. They play no part in verification — the hash does that alone.
+
+Individual days are not listed because they do not need to be: a sidecar's name is fully determined by its day, quantity, and source. Read them with `ath series`, which also computes the per-day minimum, maximum, and mean rather than storing them.
+
+| `quantity` | Canonical unit | Notes |
+|---|---|---|
+| `heart_rate` | `bpm` | |
+| `hrv_beats` | `ms` | beat-to-beat intervals, timed optically |
+| `ecg_beats` | `ms` | beat-to-beat intervals, timed from an ECG waveform |
+| `steps` | `count` | |
+| `active_energy` | `kcal` | |
+| `basal_energy` | `kcal` | resting energy; modelled by the device, not measured |
+| `exercise_time` | `min` | minutes at brisk-walk intensity or above |
+| `physical_effort` | `MET` | the device's effort estimate |
+| `flights_climbed` | `count` | |
+| `distance_walking_running` | `m` | |
+| `distance_cycling` | `m` | |
+| `distance_swimming` | `m` | |
+| `running_speed` | `m/s` | |
+| `running_power` | `W` | rate of work needed to hold pace |
+| `running_stride_length` | `m` | |
+| `running_vertical_oscillation` | `cm` | pelvis rise per stride |
+| `running_ground_contact_time` | `ms` | |
+| `walking_speed` | `m/s` | |
+| `walking_step_length` | `m` | |
+| `walking_asymmetry_percentage` | `%` | one foot moving differently from the other |
+| `time_in_daylight` | `min` | |
+
+Distance is split by modality because a multi-sport athlete's disciplines are separate questions: a slow swim and a slow run are different problems, and one summed number cannot tell them apart.
+
+The running group is what a device records stride by stride during a run. These are the measurements that distinguish an effort that was slow because the athlete was unrecovered from one that was slow because form degraded late — a distinction any prediction about a run or a HYROX has to make.
+
+Walking asymmetry deserves a note: one foot moving at a different speed from the other is a plausible early sign of injury, and it trends over months.
+
+Nothing is averaged or downsampled anywhere: the sidecars hold every sample the source contained, and the document's `days` and `n` describe what is there without pre-digesting it.
+
+A sidecar is one quantity, one day, one source:
+
+```json
+{ "athleticstandard_version": "0.2.0", "quantity": "heart_rate", "unit": "bpm",
+  "start": "2026-08-09T00:00:12-07:00", "source": "apple-1",
+  "offsets_ms": [0, 300000], "values": [62, 64] }
+```
+
+`offsets_ms` and `values` are parallel arrays of equal length, offsets measured in milliseconds from `start`. Milliseconds rather than seconds because beat intervals are about 850 ms apart, and whole seconds would collapse beats sharing a second into one instant.
+
+#### Verifying a series
+
+One rule: hash what is on disk for the quantity and compare it to `sha256`. A missing day, an extra day, and an edited day all change the hash, all report the same thing, and all have the same remedy — import again, which rewrites the files and the record together.
+
+The causes are deliberately not distinguished. Knowing which of the three happened does not change what anyone would do about it.
+
+The one exception is an absent `series/` folder, which is reported once as "series data not present" and skips series checks entirely. That is the document travelling without its sidecars, and it must stay usable.
+
+### `vendor_score` — device-computed composites
+
+WHOOP recovery and strain, Oura readiness and sleep score. A device produced them, so they carry a source and belong to Tier 1, but they are not measurements: they are proprietary composites on per-vendor scales.
+
+```json
+{ "type": "vendor_score", "metric": "recovery", "value": 67, "scale": "0-100",
+  "recorded_at": "2026-08-09T06:12:00-07:00", "source": "whoop-1" }
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `metric` | yes | vendor's name for the score, e.g. `recovery`, `strain`, `readiness` |
+| `value` | yes | may be negative or zero |
+| `scale` | yes | the range it is read against, e.g. `"0-100"` or `"0-21"` |
+
+`scale` is mandatory for the same reason a soft-signal rating needs one: a bare 14 means nothing until you know WHOOP strain runs 0–21.
+
+**A vendor score must not drive a predicted number on its own.** A tidy score is exactly what a model repeats instead of reading the data underneath. An agent may cite one as corroboration; the predicted number comes from measurements.
 
 ### `sleep_session`
 
@@ -89,7 +230,7 @@ A night of sleep as one record: `start`, `end`, `source`, and an `aggregates` ob
 
 ### `workout_session`
 
-A training session: `start`, `end`, `source`, an `aggregates` object (optional `activity` label, `avg_hr_bpm`, `max_hr_bpm`, `energy_kcal`, `distance_m`), and optional `segments` — ordered, labeled sub-efforts, which is how run splits and HYROX station times are represented:
+A training session: `start`, `end`, `source`, an `aggregates` object (optional `activity` label, `avg_hr_bpm`, `max_hr_bpm`, `energy_kcal`, `distance_m`, `elevation_gain_m`), and optional `segments` — ordered, labeled sub-efforts, which is how run splits and HYROX station times are represented:
 
 ```json
 "segments": [
@@ -141,6 +282,22 @@ The AI's *description* lives in `note` inside the file, so the document remains 
 ### How an agent should use the two tiers
 
 Hard signals drive predictions. Soft signals **adjust confidence and explain misses** — they may widen or narrow a stated range, and they supply candidate causes when a prediction is wrong, but the predicted number itself derives from measured data. This division is the format's core opinion.
+
+Note that self-reported data sometimes arrives inside a device export. WHOOP's journal is the wearer's own answers about alcohol, caffeine, and similar. Those are soft signals with no `source`, because the tier follows who reported the number, not which file carried it.
+
+## Multiple devices
+
+An athlete may wear several devices that measure the same night. The format keeps them apart.
+
+**Readings from different sources are never merged.** Every hard signal carries a `source`, and deduplication includes it, so three devices measuring one night produce three records. Two readings sharing a timestamp are not duplicates if they came from different devices.
+
+**Baselines are computed per source and per type, never pooled.** This is already required between `hrv_sdnn` and `hrv_rmssd`, which are different statistics. It is equally required between two devices that both report RMSSD.
+
+The reason is measured. Against an ECG reference across 536 nights, nocturnal HRV error was about 6% on an Oura Gen 4, 7% on an Oura Gen 3, 8% on a WHOOP 4.0, 10.5% on a Garmin Fenix 6, and 16% on a Polar Grit X Pro. An Apple Watch Series 9 and Ultra 2 underestimated HRV by 8.31 ms against a chest strap, about 29% error. Resting heart rate behaved differently: every device landed within roughly 1 bpm of ECG.
+
+So resting heart rate is broadly comparable across devices and HRV is not. The disagreement between two devices is larger than the day-to-day change a prediction is reading, so pooling them would add more error than signal.
+
+**Disagreement is preserved, not resolved.** The format never picks a winner and never averages. Both readings stay with their sources, so the difference between two devices on the same night remains recoverable — which keeps a useful question answerable: for this athlete, which device is worth trusting for which signal.
 
 ## `benchmarks`
 
@@ -214,7 +371,8 @@ Validators should accept any file whose major version they support and warn on n
 Two layers, both required for a file to be conformant:
 
 1. **Schema** (`schema/athleticstandard.schema.json`): shapes, types, enums, canonical units, strict objects (unknown keys rejected).
-2. **Semantic rules** (reference implementation: `src/validate.ts`): source and benchmark references resolve; ids unique; session `end` after `start`; score keys match `score_type`; ratings carry scales; photo provenance names its interpreter; actuals don't precede predictions; grades require actuals; miss analyses require grades; empty cause lists must be marked unexplained.
+2. **Semantic rules** (reference implementation: `src/validate.ts`): source and benchmark references resolve; ids unique; session `end` after `start`; series coverage does not end before it begins; score keys match `score_type`; ratings carry scales; vendor scores carry scales; photo provenance names its interpreter; a `derived` value cites a series whose coverage includes the day it was computed for; series units match their quantity; actuals don't precede predictions; grades require actuals; miss analyses require grades; empty cause lists must be marked unexplained.
+3. **Sidecar checks** for any `series_ref`: hash what is on disk for the quantity and compare. A mismatch is one error naming the quantity. An absent `series/` folder is a single warning, not an error.
 
 ## Appendix A — Prior art and mapping
 
@@ -237,7 +395,9 @@ What OW has no concept of — and Athletic Standard adds: self-reported (soft) s
 
 ### Apple HealthKit export
 
-The de-facto consumer aggregation hub (both ChatGPT Health and Claude's connectors standardized on it in 2026). Its export is a monolithic XML of typed samples (`HKQuantityTypeIdentifierHeartRateVariabilitySDNN` etc.) with device metadata — provenance-rich but verbose, and its HRV is SDNN-only. Athletic Standard's importer maps its sample types to point measurements and its category sleep records to `sleep_session`. Design lesson taken: per-sample source attribution. Design lesson rejected: 200-character type identifiers.
+The de-facto consumer aggregation hub (both ChatGPT Health and Claude's connectors standardized on it in 2026). Its export is a monolithic XML of typed samples (`HKQuantityTypeIdentifierHeartRateVariabilitySDNN` etc.) with device metadata — provenance-rich but verbose. Athletic Standard's importer maps its sample types to point measurements, its category sleep records to `sleep_session`, and its dense samples to sidecar series.
+
+Apple publishes HRV as SDNN only, but each SDNN record carries the beat readings it was computed from, so RMSSD is recoverable — see [Appendix B](#appendix-b--importer-mappings). Design lesson taken: per-sample source attribution, and shipping the raw beats alongside the summary. Design lesson rejected: 200-character type identifiers.
 
 ### Garmin FIT
 
@@ -255,6 +415,108 @@ Commercial normalization layer with a well-designed JSON model across providers.
 
 Pioneered open JSON schemas for mobile health data points (IEEE 1752); strong on units and provenance, clinical in orientation, no training/performance concepts, and per-datapoint schemas rather than a whole-athlete document. Athletic Standard follows its rigor on units, not its granularity.
 
-## Appendix B — Non-goals
+## Appendix B — Importer mappings
+
+What `ath import` reads from each export, and what it deliberately does not.
+
+**Units are converted explicitly, never assumed.** A vendor's unit strings vary with locale and with the wearer's display settings, so the same identifier can arrive in miles or metres, Fahrenheit or Celsius, a fraction or a percentage. An unrecognized unit is a counted skip naming the identifier and the unit seen. It is never treated as though it were already canonical, because a skipped row is visible and gets fixed while a mile stored as a metre passes validation and quietly poisons a baseline.
+
+### Apple Health `export.xml`
+
+Point measurements:
+
+| HealthKit identifier | Athletic Standard |
+|---|---|
+| `HeartRateVariabilitySDNN` | `hrv_sdnn` |
+| `RestingHeartRate` | `resting_heart_rate` |
+| `WalkingHeartRateAverage` | `walking_heart_rate` |
+| `HeartRateRecoveryOneMinute` | `hr_recovery` |
+| `RespiratoryRate` | `respiratory_rate` |
+| `BodyMass` | `body_weight` |
+| `LeanBodyMass` | `lean_body_mass` |
+| `BodyFatPercentage` | `body_fat_percentage` |
+| `Height` | `height` |
+| `VO2Max` | `vo2_max` |
+| `AppleSleepingWristTemperature` | `wrist_temperature_sleeping` |
+| `BodyTemperature` | `body_temperature` |
+| `OxygenSaturation` | `oxygen_saturation` |
+| `BloodPressureSystolic` / `BloodPressureDiastolic` | the two blood pressure types |
+
+Sessions: `SleepAnalysis` records cluster into `sleep_session`; `Workout` plus its `WorkoutEvent` laps becomes `workout_session` with `segments`.
+
+Series:
+
+| HealthKit identifier | Series quantity |
+|---|---|
+| `HeartRate` | `heart_rate` |
+| `StepCount` | `steps` |
+| `ActiveEnergyBurned` | `active_energy` |
+| `BasalEnergyBurned` | `basal_energy` |
+| `AppleExerciseTime` | `exercise_time` |
+| `PhysicalEffort` | `physical_effort` |
+| `FlightsClimbed` | `flights_climbed` |
+| `DistanceWalkingRunning` / `Cycling` / `Swimming` | three separate distance series |
+| `RunningSpeed` / `RunningPower` / `RunningStrideLength` / `RunningVerticalOscillation` / `RunningGroundContactTime` | the five running quantities |
+| `WalkingSpeed` / `WalkingStepLength` / `WalkingAsymmetryPercentage` | the three gait quantities |
+| `TimeInDaylight` | `time_in_daylight` |
+
+Skipped, each for a stated reason rather than for want of a name: diagnostic findings (atrial fibrillation burden, low-heart-rate events, walking steadiness), all audio exposure types, derived or goal values (body mass index, sleep duration goal), frailty-oriented mobility measures that stay near-constant for a trained athlete (double support percentage, stand time, stair speeds), clinical and FHIR-shaped records, ECG voltage, and any unrecognized identifier.
+
+**Beat lists.** Each SDNN record carries a `HeartRateVariabilityMetadataList` of instantaneous beat readings, roughly 60 seconds of them. Those become an `hrv_beats` series plus a derived `hrv_rmssd`. Without this, an Apple Watch wearer has no statistic comparable to WHOOP or Oura, because Apple publishes SDNN only.
+
+A short window is enough for RMSSD: in athletes a 60-second window agreed with the standard 5-minute measurement at ICC 0.98, and in 3,387 adults RMSSD from even a 10-second recording was a valid proxy (r = 0.86, rising to 0.94 averaged over three windows). SDNN needs longer windows and agrees worse at every length, which is why only RMSSD is derived.
+
+**Missed beats are excluded from the calculation, not just counted.** RMSSD is built from the difference between *successive* intervals. If the device failed to detect a beat, the intervals either side of the gap are not successive, and treating them as though they were invents a large difference — so a dropped beat would read as high variability, which is precisely backwards. Continuity is therefore checked against the timestamp on each beat, the sequence is split wherever the gap exceeds 1.5 times the interval the later beat reports, and pairs spanning a gap contribute nothing.
+
+Remaining guard rails: intervals outside 300–2000 ms are discarded as implausible and counted, at least 10 continuous pairs and a 10-second window are required, and no value is written at all when too little survives. A weak number that looks like a measurement is worse than no number.
+
+**ECG recordings** in the export's `electrocardiograms/` folder are about 30 seconds of single-lead waveform near 511 Hz. Beats are located with the standard Pan–Tompkins method: band-pass to 5–15 Hz where the QRS complex lives, differentiate for its slope, square, integrate over 150 ms, then take peaks above an adaptive threshold with a 200 ms refractory period. Peaks are then localized on the band-passed signal rather than the integrated one, since integration smears a peak in time and the whole purpose here is interval precision.
+
+The intervals become an `ecg_beats` series and a derived `hrv_rmssd`, under a source with `sensor: "ecg"`.
+
+Three rules govern what is kept:
+
+- **The waveform is not stored.** Beat intervals are a performance measurement; the waveform is a clinical artifact.
+- **The rhythm classification is not stored either**, but it *is* read, as a gate. A recording that is not sinus rhythm is refused before any interval is computed, because in atrial fibrillation the rhythm is irregular by definition and RMSSD would measure the arrhythmia rather than autonomic state. Reading a classification to exclude a recording is not the same as recording a diagnosis.
+- **A separate source, always.** Never pooled with the optically measured readings from the same watch.
+
+**Workout routes** in `workout-routes/` are GPX tracks, one per outdoor workout, matched to a workout by overlapping time rather than by filename. They yield `segments` of one split per kilometre and an `elevation_gain_m` aggregate.
+
+Raw coordinates are never stored: a GPS track begins and ends at the athlete's home, and splits and elevation carry none of that. Split boundaries are interpolated rather than snapped to the nearest recorded point, which would otherwise put a second or two of error into every split. Elevation changes under a metre between points are ignored, because GPS altitude wobbles by several metres at a standstill and summing every positive wobble turns a flat course into a mountain. A workout that already carries laps the wearer set keeps them, since a deliberate division means more than an even kilometre.
+
+### WHOOP standard CSV export
+
+| Column | Athletic Standard |
+|---|---|
+| `Heart rate variability (ms)` | `hrv_rmssd` |
+| `Resting heart rate (bpm)` | `resting_heart_rate` |
+| `Respiratory rate (rpm)` | `respiratory_rate` |
+| `Skin temp (celsius)` | `skin_temperature` |
+| `Blood oxygen %` | `oxygen_saturation` |
+| sleep onset/wake + stage minutes | `sleep_session` (minutes → seconds) |
+| workout rows | `workout_session` |
+| `Recovery score %` | `vendor_score` `recovery`, scale `0-100` |
+| `Day Strain` | `vendor_score` `strain`, scale `0-21` |
+| `journal_entries.csv` | soft signals, no `source` |
+
+Timestamps are local, with the offset in a `Cycle timezone` column. Journal questions map to existing soft types where the fit is honest, and anything else keeps its question text as a `note`.
+
+### Oura CSV export
+
+| Column | Athletic Standard |
+|---|---|
+| `average_hrv` | `hrv_rmssd` |
+| `lowest_heart_rate` | `resting_heart_rate` |
+| `average_breath` | `respiratory_rate` |
+| `spo2_percentage` | `oxygen_saturation` |
+| `vo2_max` | `vo2_max` |
+| `temperature_deviation` | `temperature_deviation` |
+| bedtime + stage durations | `sleep_session` (already seconds) |
+| `readiness_score`, `sleep_score` | `vendor_score`, scale `0-100` |
+| readiness contributors | `vendor_score` `readiness_contributor_*` |
+
+**One trap worth naming.** Oura publishes a readiness contributor called "resting heart rate" that is a 0–100 sub-score, not a pulse. Reading it as a heart rate would put a number near 90 into a resting-HR baseline. The genuine figure is `lowest_heart_rate`.
+
+## Appendix C — Non-goals
 
 Athletic Standard is not an app, not a coach, and not medical advice. It does not model general health records (see FHIR), nutrition databases, or programming/workout *planning* — it represents state and evidence so that agents can reason about them.
