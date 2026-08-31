@@ -637,6 +637,73 @@ describe("ath import — failure modes", () => {
     expect(res.stdout).toContain("Data Export");
   });
 
+  it("explains a document written by an earlier build, and how to fix it", () => {
+    // A hard signal is a union, and a failed union says only "Invalid input" — which
+    // is no use for a file people are meant to edit by hand.
+    const dir = newAthlete();
+    ath(["import", join(EXPORTS, "apple/export.xml")], dir);
+
+    const athleteFile = join(dir, "athlete.ath.json");
+    const file = JSON.parse(readFileSync(athleteFile, "utf8"));
+    file.hard_signals = file.hard_signals.map((s: Record<string, unknown>) =>
+      s.type !== "series_ref"
+        ? s
+        : {
+            type: "series_ref",
+            quantity: s.quantity,
+            unit: s.unit,
+            start: `${s.from}T00:00:00Z`,
+            end: `${s.to}T23:59:59Z`,
+            source: s.source,
+            file: `series/${s.from}-${s.quantity}-${s.source}.ath.series.json`,
+            sha256: s.sha256,
+            n: s.n,
+            summary: { min: 0, max: 1, mean: 0.5 },
+          },
+    );
+    writeFileSync(athleteFile, JSON.stringify(file, null, 2) + "\n");
+
+    const res = ath(["check"], dir);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("an earlier build wrote one record per day");
+    expect(res.stdout).toContain("import again");
+
+    // The same explanation appears when a command loads the file, not just on check.
+    expect(ath(["import", join(EXPORTS, "apple/export.xml")], dir).stdout).toContain(
+      "an earlier build wrote one record per day",
+    );
+  });
+
+  it("rebuilds coverage from sidecars already on disk", () => {
+    // Which is why the remedy above is only a re-import: the samples never moved.
+    const dir = newAthlete();
+    ath(["import", join(EXPORTS, "apple/export.xml")], dir);
+    const before = read(dir).hard_signals.filter((s) => s.type === "series_ref").length;
+
+    rmSync(join(dir, "athlete.ath.json"));
+    expect(ath(["init", "-y"], dir).code).toBe(0);
+    expect(ath(["import", join(EXPORTS, "apple/export.xml")], dir).code).toBe(0);
+
+    expect(read(dir).hard_signals.filter((s) => s.type === "series_ref")).toHaveLength(before);
+    expect(ath(["check"], dir).code).toBe(0);
+  });
+
+  it("names the field at fault in a hand-edited record", () => {
+    // The format is meant to be editable by hand, so a bad edit has to say what broke.
+    const dir = newAthlete();
+    ath(["import", join(EXPORTS, "apple/export.xml")], dir);
+
+    const athleteFile = join(dir, "athlete.ath.json");
+    const file = JSON.parse(readFileSync(athleteFile, "utf8"));
+    const point = file.hard_signals.find((s: { type: string }) => s.type === "resting_heart_rate");
+    delete point.unit;
+    writeFileSync(athleteFile, JSON.stringify(file, null, 2) + "\n");
+
+    const res = ath(["check"], dir);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toMatch(/hard_signals\.\d+\.unit/);
+  });
+
   it("reports a path that does not exist", () => {
     const dir = newAthlete();
     const res = ath(["import", join(dir, "nope.zip")], dir);

@@ -3,9 +3,17 @@
  * Schema validation says "this is shaped like an Athletic Standard file";
  * these checks say "this Athletic Standard file is internally honest."
  */
+import { z } from "zod";
 import {
   AthleticStandardFile,
+  BenchmarkResult,
+  POINT_MEASUREMENT_UNITS,
+  PointMeasurement,
   SERIES_QUANTITY_UNITS,
+  SeriesRef,
+  SleepSession,
+  VendorScore,
+  WorkoutSession,
   type AthleticStandardFileT,
 } from "./schema.js";
 
@@ -23,18 +31,98 @@ export interface ValidationResult {
   issues: ValidationIssue[];
 }
 
+/**
+ * The record shape each `type` is meant to satisfy.
+ *
+ * A hard signal is a union, and a union that fails gives one useless message:
+ * "Invalid input", with no indication of which shape was intended or what was wrong
+ * with it. This format is meant to be edited by hand and by agents, so a malformed
+ * record has to explain itself. Matching on `type` first turns the union back into a
+ * single schema whose errors name actual fields.
+ */
+const HARD_SIGNAL_SHAPES: Record<string, z.ZodType> = {
+  sleep_session: SleepSession,
+  workout_session: WorkoutSession,
+  benchmark_result: BenchmarkResult,
+  series_ref: SeriesRef,
+  vendor_score: VendorScore,
+};
+
+/** Fields that only existed in the per-day series records replaced by D40. */
+const RETIRED_SERIES_FIELDS = ["file", "summary", "start", "end"];
+
+function explainHardSignal(raw: unknown, index: number): ValidationIssue[] {
+  const at = `hard_signals.${index}`;
+  if (raw === null || typeof raw !== "object") {
+    return [{ severity: "error", path: at, message: "not an object" }];
+  }
+
+  const record = raw as Record<string, unknown>;
+  const type = record.type;
+  if (typeof type !== "string") {
+    return [{ severity: "error", path: `${at}.type`, message: "missing a `type`" }];
+  }
+
+  // A series record written before D40 is a known case with a concrete remedy, so
+  // say so rather than listing the fields that moved.
+  if (type === "series_ref") {
+    const retired = RETIRED_SERIES_FIELDS.filter((f) => f in record);
+    if (retired.length > 0) {
+      return [
+        {
+          severity: "error",
+          path: at,
+          message:
+            `series_ref carries ${retired.join(", ")}, which an earlier build wrote one ` +
+            `record per day. Coverage is now one record per quantity: delete this file and ` +
+            `import again, which rebuilds it from the sidecars you already have.`,
+        },
+      ];
+    }
+  }
+
+  const shape = HARD_SIGNAL_SHAPES[type] ?? (type in POINT_MEASUREMENT_UNITS ? PointMeasurement : undefined);
+  if (!shape) {
+    return [
+      {
+        severity: "error",
+        path: `${at}.type`,
+        message: `unknown hard signal type '${type}'`,
+      },
+    ];
+  }
+
+  const parsed = shape.safeParse(raw);
+  if (parsed.success) {
+    return [{ severity: "error", path: at, message: `does not match any hard signal shape` }];
+  }
+  return parsed.error.issues.map((i) => ({
+    severity: "error" as const,
+    path: [at, ...i.path.map(String)].join("."),
+    message: i.message,
+  }));
+}
+
 /** Full validation: Zod schema first, then semantic rules on the parsed file. */
 export function validateAthleticStandardFile(data: unknown): ValidationResult {
   const parsed = AthleticStandardFile.safeParse(data);
   if (!parsed.success) {
-    return {
-      valid: false,
-      issues: parsed.error.issues.map((i) => ({
-        severity: "error" as const,
-        path: i.path.join("."),
-        message: i.message,
-      })),
-    };
+    const rawSignals =
+      data !== null && typeof data === "object" && Array.isArray((data as { hard_signals?: unknown }).hard_signals)
+        ? ((data as { hard_signals: unknown[] }).hard_signals)
+        : [];
+
+    const issues = parsed.error.issues.flatMap((i): ValidationIssue[] => {
+      // Replace a bare union failure on a hard signal with the real reason.
+      const [head, index, ...rest] = i.path;
+      if (head === "hard_signals" && typeof index === "number" && rest.length === 0) {
+        const explained = explainHardSignal(rawSignals[index], index);
+        if (explained.length > 0) return explained;
+      }
+      return [{ severity: "error", path: i.path.join(".") || "root", message: i.message }];
+    });
+
+    return { valid: false, issues };
   }
   const issues = semanticIssues(parsed.data);
   return { valid: !issues.some((i) => i.severity === "error"), issues };
