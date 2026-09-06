@@ -174,11 +174,11 @@ describe("ath import — Apple Health", () => {
     // line, and the detail below it has one line per quantity — so the summary is
     // bounded by how many things are measured, not by how long the history is.
     expect(output).toMatch(/wrote \d+ series files to series\/$/m);
-    expect(output).toMatch(/hrv_beats: 69 samples across 1 day/);
+    expect(output).toMatch(/hrv_beats \(apple-1\): 69 samples across 1 day/);
 
     const coverageLines = output
       .split("\n")
-      .filter((line) => /^ {4}\w+: \d+ samples? across \d+ days? \(/.test(line));
+      .filter((line) => /^ {4}\w+( \([\w-]+\))?: \d+ samples? across \d+ days? \(/.test(line));
     const recordCount = file.hard_signals.filter((s) => s.type === "series_ref").length;
     expect(coverageLines).toHaveLength(recordCount);
   });
@@ -249,6 +249,13 @@ describe("ath import — Apple Health", () => {
     const bySource = new Map(rmssd.map((s) => [s.source, s]));
     expect(bySource.has("apple-1")).toBe(true);
     expect(bySource.has("apple-ecg-1")).toBe(true);
+  });
+
+  it("names the second source, so a wearer learns it exists", () => {
+    // An import that quietly creates a source leaves readings the wearer cannot
+    // find, under a name nothing told them about.
+    expect(output).toContain("also under source 'apple-ecg-1' (Apple Health ECG recordings)");
+    expect(output).toMatch(/ecg_beats \(apple-ecg-1\): \d+ samples/);
   });
 
   it("derives RMSSD from the ECG waveform with its receipts", () => {

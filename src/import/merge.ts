@@ -31,7 +31,10 @@ export interface ImportPayload {
 
 export interface MergeSummary {
   sourceId: string;
-  added: Map<string, number>;
+  /** What was added, per source: an Apple export also writes under its ECG source. */
+  added: Map<string, Map<string, number>>;
+  /** How each source involved describes itself, so an extra one explains itself. */
+  sourceDetails: Map<string, string>;
   duplicates: number;
   softAdded: number;
   softDuplicates: number;
@@ -159,7 +162,7 @@ export function mergePayload(
 ): MergeSummary {
   const sourceId = upsertSource(file, payload.vendor, payload.detail);
 
-  const added = new Map<string, number>();
+  const added = new Map<string, Map<string, number>>();
   let duplicates = 0;
 
   const existingKeys = new Set(file.hard_signals.map(hardKey));
@@ -182,7 +185,9 @@ export function mergePayload(
     existingKeys.add(key);
     file.hard_signals.push(sig);
     const label = sig.type === "vendor_score" ? `vendor_score:${sig.metric}` : sig.type;
-    added.set(label, (added.get(label) ?? 0) + 1);
+    const bySource = added.get(sig.source) ?? new Map<string, number>();
+    bySource.set(label, (bySource.get(label) ?? 0) + 1);
+    added.set(sig.source, bySource);
   }
 
   const existingSoftKeys = new Set(file.soft_signals.map(softKey));
@@ -202,9 +207,15 @@ export function mergePayload(
   file.hard_signals.sort((a, b) => Date.parse(signalTimestamp(a)) - Date.parse(signalTimestamp(b)));
   file.soft_signals.sort((a, b) => Date.parse(a.reported_at) - Date.parse(b.reported_at));
 
+  const involved = new Set([sourceId, ...added.keys(), ...groupRefs.map((r) => r.source)]);
+  const sourceDetails = new Map(
+    file.sources.filter((s) => involved.has(s.id)).map((s) => [s.id, s.detail ?? s.kind]),
+  );
+
   return {
     sourceId,
     added,
+    sourceDetails,
     duplicates,
     softAdded,
     softDuplicates,
@@ -220,16 +231,30 @@ export function renderMergeSummary(summary: MergeSummary, label: string): string
   const lines: string[] = [];
   lines.push(`imported ${label} as source '${summary.sourceId}'`);
 
-  const totalAdded = [...summary.added.values()].reduce((a, b) => a + b, 0);
+  const counts = (bySource: Map<string, number> | undefined) =>
+    [...(bySource ?? new Map<string, number>())].sort((a, b) => b[1] - a[1]);
+  const totalAdded = [...summary.added.values()]
+    .flatMap((bySource) => [...bySource.values()])
+    .reduce((a, b) => a + b, 0);
   if (totalAdded === 0 && summary.softAdded === 0) {
     lines.push("  nothing new — every record was already in the file");
   }
 
-  for (const [type, count] of [...summary.added].sort((a, b) => b[1] - a[1])) {
+  for (const [type, count] of counts(summary.added.get(summary.sourceId))) {
     lines.push(`  ${type}: ${count}`);
   }
   if (summary.softAdded > 0) {
     lines.push(`  soft signals (self-reported): ${summary.softAdded}`);
+  }
+
+  // One export can write under more than one source: an Apple Watch measures beats
+  // optically all day and electrically during an ECG, and those readings are kept
+  // apart (D37). Naming the extra source is the only way the wearer learns it exists.
+  for (const [id, bySource] of summary.added) {
+    if (id === summary.sourceId) continue;
+    const detail = summary.sourceDetails.get(id);
+    lines.push(`  also under source '${id}'${detail ? ` (${detail})` : ""}:`);
+    for (const [type, count] of counts(bySource)) lines.push(`    ${type}: ${count}`);
   }
 
   // Years of data means thousands of sidecars, so the file count is one line and the
@@ -242,11 +267,15 @@ export function renderMergeSummary(summary: MergeSummary, label: string): string
   }
 
   if (summary.coverage.length > 0) {
+    // Named per line only when the import wrote under more than one source, since
+    // otherwise every line would repeat the source named two lines above.
+    const manySources = new Set(summary.coverage.map((r) => r.source)).size > 1;
     lines.push(`  series coverage now recorded:`);
     for (const ref of [...summary.coverage].sort((a, b) => a.quantity.localeCompare(b.quantity))) {
       const span = ref.from === ref.to ? ref.from : `${ref.from} → ${ref.to}`;
       lines.push(
-        `    ${ref.quantity}: ${ref.n} sample${ref.n === 1 ? "" : "s"} across ` +
+        `    ${ref.quantity}${manySources ? ` (${ref.source})` : ""}: ` +
+          `${ref.n} sample${ref.n === 1 ? "" : "s"} across ` +
           `${ref.days} day${ref.days === 1 ? "" : "s"} (${span})`,
       );
     }
