@@ -22,6 +22,7 @@ Read these before making decisions — they are the project's memory and outrank
 - **Naming:** "Athletic Standard" in prose; `athleticstandard` for the npm package, file extension, and version field; `ath` is the CLI command; `AthleticStandard` in code identifiers.
 - **Keep the repo impersonal:** no personal objectives, audience/positioning framing, or individual names in committed content.
 - **Prose (D24):** write the rule, then the reason. Short sentences. Ordinary words. No slogans, no metaphor used as if it were the rule, no antithesis wordplay (*an* vs *the*, "X is the pipe, Y is the document", "never a data upgrade"). Don't use "vibes", "bet", "scoreboard", "on-ramp", or "doctrine" as stand-ins for the actual idea. Named principles are allowed when they name a real rule ("two-tier wall", "the file is the database", "not an app, not a coach, not medical advice") — after the name, state the rule in ordinary words in the same paragraph.
+- **Chat:** talking to a person follows [`.cursor/rules/plain-english.mdc`](.cursor/rules/plain-english.mdc). One idea per sentence, the point before the reason, no shop talk, one numbered question at a time.
 - **SDNN and RMSSD are different statistics** (`hrv_sdnn` vs `hrv_rmssd`); never combine them in one baseline.
 
 ## Verification

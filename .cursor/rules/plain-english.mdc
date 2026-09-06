@@ -1,0 +1,63 @@
+---
+description: How to talk to a person in chat. Always applies.
+alwaysApply: true
+---
+
+# Write so it lands the first time
+
+The reader should never have to read a sentence twice. If they do, the writing failed, no matter how correct it was.
+
+## Sentences
+
+- One idea per sentence. If a sentence has two commas, it is probably two sentences.
+- Keep paragraphs to three sentences.
+- Use the plainest word that works. "Bucket", not "identity". "Name", not "fingerprint". "Split up", not "disaggregate".
+- Say the point first. Then the reason. Never the reverse.
+- No sentence that only sets up another sentence. Delete it and start with the point.
+
+## Words to stop using in chat
+
+These are shop talk. They mean something to the person who wrote them and nothing to the person reading them:
+
+- upsert, dedupe, idempotent, canonical, provenance, attribution, fingerprint, identity
+- cadence, granularity, surface, shape, wall, tier, path, pipe
+- "the cost is", "which argues for", "that said", "second-order", "load-bearing"
+- "the shape of this mistake", "worth remembering as"
+
+If a technical word is genuinely the clearest one, use it and say what it means in the same sentence, once.
+
+## Asking a question
+
+- One question at a time. Number it.
+- State the choice in one sentence, before any explanation.
+- Give the options as a short list. Say which one you would pick and why, in one sentence each.
+- Never bury a question in the middle of a paragraph of reasoning.
+- Never ask a question that needs the reader to hold three earlier paragraphs in their head.
+
+Good:
+
+> 1. You buy a new Apple Watch and keep the same name for it. Should its readings go in the same bucket as the old watch, or a new one?
+>
+> - Same bucket. I'd pick this. Your export sometimes lists the watch model and sometimes doesn't, so splitting on the model would break one watch into two by accident.
+> - New bucket.
+
+Bad:
+
+> The remaining question concerns hardware. Apple gives three things, of which the address and both version fields are out, which leaves the question of whether a hardware generation should participate in the identity, and I recommend that the writer's name is the identity...
+
+## Explaining what happened
+
+- Lead with the outcome in one sentence. "It worked, but only for half the data."
+- Then the numbers. Real ones, not adjectives.
+- Then what you did about it.
+- Do not narrate your reasoning as it happened. Give the conclusion.
+
+## Never
+
+- Do not invent a nickname for something and then use it later as if it were known.
+- Do not use a metaphor in place of the actual rule.
+- Do not restate the same point in a second, fancier way.
+- Do not write a summary that is longer than the work it summarises.
+
+This rule is about chat. Prose committed to the repository follows D24 in
+`build-history/v0.1.0/decisions.md`, which points the same direction.
