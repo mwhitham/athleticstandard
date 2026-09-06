@@ -46,6 +46,13 @@ const at = (i: number, h: number, m = 0) => {
 const hard: HardSignalT[] = [];
 const soft: SoftSignalT[] = [];
 
+/** What to sort a hard signal by: a series covers days, so it sorts by its first. */
+function signalOrder(sig: HardSignalT): string {
+  if ("recorded_at" in sig) return sig.recorded_at;
+  if (sig.type === "series_ref") return sig.from;
+  return sig.start;
+}
+
 // --- Daily physiology with slow trends and correlated bad patches ---
 let hrvBaseline = 58; // improves slowly over 14 months toward ~66
 let sleepDebt = 0; // accumulates on bad nights, decays otherwise
@@ -227,11 +234,7 @@ const file: AthleticStandardFileT = {
     },
     { id: "manual-1", kind: "manual", detail: "Hand-entered benchmark results" },
   ],
-  hard_signals: hard.sort((a, b) =>
-    ("recorded_at" in a ? a.recorded_at : a.start).localeCompare(
-      "recorded_at" in b ? b.recorded_at : b.start,
-    ),
-  ),
+  hard_signals: hard.sort((a, b) => signalOrder(a).localeCompare(signalOrder(b))),
   soft_signals: soft.sort((a, b) => a.reported_at.localeCompare(b.reported_at)),
   benchmarks: [
     {

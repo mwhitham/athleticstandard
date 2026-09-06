@@ -3,7 +3,22 @@
  * Schema validation says "this is shaped like an Athletic Standard file";
  * these checks say "this Athletic Standard file is internally honest."
  */
-import { AthleticStandardFile, type AthleticStandardFileT } from "./schema.js";
+import { z } from "zod";
+import {
+  AthleticStandardFile,
+  BenchmarkResult,
+  POINT_MEASUREMENT_UNITS,
+  PointMeasurement,
+  SERIES_QUANTITY_UNITS,
+  SeriesRef,
+  SleepSession,
+  VendorScore,
+  WorkoutSession,
+  type AthleticStandardFileT,
+} from "./schema.js";
+
+/** Calendar day of a timestamp, for keying signals to the day they belong to. */
+const day = (ts: string) => ts.slice(0, 10);
 
 export interface ValidationIssue {
   severity: "error" | "warning";
@@ -16,18 +31,98 @@ export interface ValidationResult {
   issues: ValidationIssue[];
 }
 
+/**
+ * The record shape each `type` is meant to satisfy.
+ *
+ * A hard signal is a union, and a union that fails gives one useless message:
+ * "Invalid input", with no indication of which shape was intended or what was wrong
+ * with it. This format is meant to be edited by hand and by agents, so a malformed
+ * record has to explain itself. Matching on `type` first turns the union back into a
+ * single schema whose errors name actual fields.
+ */
+const HARD_SIGNAL_SHAPES: Record<string, z.ZodType> = {
+  sleep_session: SleepSession,
+  workout_session: WorkoutSession,
+  benchmark_result: BenchmarkResult,
+  series_ref: SeriesRef,
+  vendor_score: VendorScore,
+};
+
+/** Fields that only existed in the per-day series records replaced by D40. */
+const RETIRED_SERIES_FIELDS = ["file", "summary", "start", "end"];
+
+function explainHardSignal(raw: unknown, index: number): ValidationIssue[] {
+  const at = `hard_signals.${index}`;
+  if (raw === null || typeof raw !== "object") {
+    return [{ severity: "error", path: at, message: "not an object" }];
+  }
+
+  const record = raw as Record<string, unknown>;
+  const type = record.type;
+  if (typeof type !== "string") {
+    return [{ severity: "error", path: `${at}.type`, message: "missing a `type`" }];
+  }
+
+  // A series record written before D40 is a known case with a concrete remedy, so
+  // say so rather than listing the fields that moved.
+  if (type === "series_ref") {
+    const retired = RETIRED_SERIES_FIELDS.filter((f) => f in record);
+    if (retired.length > 0) {
+      return [
+        {
+          severity: "error",
+          path: at,
+          message:
+            `series_ref carries ${retired.join(", ")}, which an earlier build wrote one ` +
+            `record per day. Coverage is now one record per quantity: delete this file and ` +
+            `import again, which rebuilds it from the sidecars you already have.`,
+        },
+      ];
+    }
+  }
+
+  const shape = HARD_SIGNAL_SHAPES[type] ?? (type in POINT_MEASUREMENT_UNITS ? PointMeasurement : undefined);
+  if (!shape) {
+    return [
+      {
+        severity: "error",
+        path: `${at}.type`,
+        message: `unknown hard signal type '${type}'`,
+      },
+    ];
+  }
+
+  const parsed = shape.safeParse(raw);
+  if (parsed.success) {
+    return [{ severity: "error", path: at, message: `does not match any hard signal shape` }];
+  }
+  return parsed.error.issues.map((i) => ({
+    severity: "error" as const,
+    path: [at, ...i.path.map(String)].join("."),
+    message: i.message,
+  }));
+}
+
 /** Full validation: Zod schema first, then semantic rules on the parsed file. */
 export function validateAthleticStandardFile(data: unknown): ValidationResult {
   const parsed = AthleticStandardFile.safeParse(data);
   if (!parsed.success) {
-    return {
-      valid: false,
-      issues: parsed.error.issues.map((i) => ({
-        severity: "error" as const,
-        path: i.path.join("."),
-        message: i.message,
-      })),
-    };
+    const rawSignals =
+      data !== null && typeof data === "object" && Array.isArray((data as { hard_signals?: unknown }).hard_signals)
+        ? ((data as { hard_signals: unknown[] }).hard_signals)
+        : [];
+
+    const issues = parsed.error.issues.flatMap((i): ValidationIssue[] => {
+      // Replace a bare union failure on a hard signal with the real reason.
+      const [head, index, ...rest] = i.path;
+      if (head === "hard_signals" && typeof index === "number" && rest.length === 0) {
+        const explained = explainHardSignal(rawSignals[index], index);
+        if (explained.length > 0) return explained;
+      }
+      return [{ severity: "error", path: i.path.join(".") || "root", message: i.message }];
+    });
+
+    return { valid: false, issues };
   }
   const issues = semanticIssues(parsed.data);
   return { valid: !issues.some((i) => i.severity === "error"), issues };
@@ -56,6 +151,7 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
       err(`${path}.source`, `unknown source '${sig.source}' — every hard signal needs provenance`);
     }
     if ("start" in sig && "end" in sig) {
+      // A session that begins and ends at the same instant did not happen.
       if (Date.parse(sig.end) <= Date.parse(sig.start)) {
         err(`${path}`, `session end (${sig.end}) is not after start (${sig.start})`);
       }
@@ -64,6 +160,46 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
       if (!benchmarkIds.has(sig.benchmark)) {
         err(`${path}.benchmark`, `unknown benchmark '${sig.benchmark}'`);
       }
+    }
+    if (sig.type === "series_ref") {
+      const expected = SERIES_QUANTITY_UNITS[sig.quantity];
+      if (sig.unit !== expected) {
+        err(`${path}.unit`, `${sig.quantity} is measured in ${expected}, not '${sig.unit}'`);
+      }
+      if (sig.from > sig.to) {
+        err(`${path}`, `series coverage starts (${sig.from}) after it ends (${sig.to})`);
+      }
+      if (sig.days === 0 || sig.n === 0) {
+        warn(`${path}`, `series covers no samples — nothing was imported for ${sig.quantity}`);
+      }
+    }
+    if (sig.type === "vendor_score" && !sig.scale.trim()) {
+      err(
+        `${path}.scale`,
+        "a vendor score needs its scale — the number is meaningless without the range it is read against",
+      );
+    }
+  });
+
+  // --- Derived values must cite series this file actually contains (D26) ---
+  // A computed number that references evidence the file lacks cannot be audited.
+  // Coverage is per quantity now (D40), so the day has to fall inside the span
+  // rather than match a record of its own.
+  const coverage = new Map<string, { from: string; to: string }>();
+  for (const sig of file.hard_signals) {
+    if (sig.type !== "series_ref") continue;
+    coverage.set(`${sig.quantity}|${sig.source}`, { from: sig.from, to: sig.to });
+  }
+  file.hard_signals.forEach((sig, i) => {
+    if (!("derived" in sig) || !sig.derived) return;
+    const span = coverage.get(`${sig.derived.from}|${sig.source}`);
+    const on = day(sig.recorded_at);
+    if (!span || on < span.from || on > span.to) {
+      err(
+        `hard_signals.${i}.derived.from`,
+        `derived from '${sig.derived.from}' but source '${sig.source}' has no such series ` +
+          `covering ${on} — a derived value must cite evidence in the file`,
+      );
     }
   });
 
