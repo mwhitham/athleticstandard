@@ -36,6 +36,21 @@ export const Id = z
 
 export const SourceKind = z.enum(["wearable", "export_file", "connector", "manual"]);
 
+/**
+ * The stable parts of a device description. Apple's export writes a device as
+ * `<<HKDevice: 0x2809b6800>, name:Apple Watch, manufacturer:Apple Inc., model:Watch,
+ * hardware:Watch6,2, software:10.2>`. The address changes every run and the software
+ * changes every update, so neither is kept. What remains describes the physical thing.
+ */
+export const Device = z
+  .strictObject({
+    name: z.string().optional(),
+    manufacturer: z.string().optional(),
+    model: z.string().optional(),
+    hardware: z.string().optional().describe("e.g. Watch6,2"),
+  })
+  .describe("A physical device seen writing under this source, without version or address");
+
 export const Source = z
   .strictObject({
     id: Id,
@@ -44,6 +59,29 @@ export const Source = z
       .string()
       .optional()
       .describe("e.g. whoop, oura, apple, garmin — omit for kind=manual"),
+    writer: z
+      .string()
+      .optional()
+      .describe(
+        "The app or device that wrote the readings, as the export names it — e.g. " +
+          "'Apple Watch', 'WHOOP', 'Withings'. An export file is a container, and one " +
+          "container carries readings from many writers (D45). Each gets its own source.",
+      ),
+    via: z
+      .string()
+      .optional()
+      .describe(
+        "How the readings arrived: 'apple_health', 'whoop_csv', 'oura_csv'. The same " +
+          "writer reaching the file by two routes is two sources, because the routes " +
+          "carry different data.",
+      ),
+    devices: z
+      .array(Device)
+      .optional()
+      .describe(
+        "Every distinct device seen writing under this name. Recorded, not used to split: " +
+          "a replaced watch that keeps its name stays one source and lists both here.",
+      ),
     sensor: z
       .string()
       .optional()
@@ -378,10 +416,22 @@ export const SeriesFile = z
       .array(z.number().int().nonnegative())
       .describe("Milliseconds from `start`, ascending. Milliseconds because beat intervals are ~850ms apart"),
     values: z.array(z.number()),
+    durations_ms: z
+      .array(z.number().int().nonnegative())
+      .optional()
+      .describe(
+        "How long each sample covers, when the device wrote a span rather than an instant: " +
+          "'420 steps from 9:00 to 9:05' keeps its 300000. Absent for instantaneous " +
+          "readings such as heart rate. Parallel to offsets_ms when present.",
+      ),
   })
   .refine((s) => s.offsets_ms.length === s.values.length, {
     message: "offsets_ms and values must be the same length — they are parallel arrays",
     path: ["values"],
+  })
+  .refine((s) => s.durations_ms === undefined || s.durations_ms.length === s.offsets_ms.length, {
+    message: "durations_ms must be parallel to offsets_ms when present",
+    path: ["durations_ms"],
   })
   .describe("A dense sample series: offsets_ms and values are parallel arrays of equal length");
 
@@ -581,6 +631,7 @@ export const AthleticStandardFile = z
 
 export type AthleticStandardFileT = z.infer<typeof AthleticStandardFile>;
 export type SourceT = z.infer<typeof Source>;
+export type DeviceT = z.infer<typeof Device>;
 export type HardSignalT = z.infer<typeof HardSignal>;
 export type SoftSignalT = z.infer<typeof SoftSignal>;
 export type BenchmarkT = z.infer<typeof Benchmark>;

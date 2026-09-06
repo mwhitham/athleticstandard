@@ -29,10 +29,18 @@ import {
 export const SERIES_DIR = "series";
 const SERIES_SUFFIX = ".ath.series.json";
 
-/** One sample: an absolute instant and a value, before it is packed into a sidecar. */
+/**
+ * One sample: an absolute instant and a value, before it is packed into a sidecar.
+ *
+ * `durationMs` is how long the sample covers when the device wrote a span — "420
+ * steps from 9:00 to 9:05" — and absent for a reading taken at an instant. Kept
+ * because a span is needed to turn a total into a rate, and to see where coverage
+ * stopped (D45).
+ */
 export interface Sample {
   at: string;
   value: number;
+  durationMs?: number;
 }
 
 /** Stable field order and a trailing newline, so sidecars diff cleanly under git. */
@@ -47,6 +55,7 @@ function serializeSeries(file: SeriesFileT): string {
         source: file.source,
         offsets_ms: file.offsets_ms,
         values: file.values,
+        ...(file.durations_ms ? { durations_ms: file.durations_ms } : {}),
       },
       null,
       2,
@@ -93,6 +102,10 @@ export function buildSeries(
   const start = sorted[0]!.at;
   const startMs = Date.parse(start);
 
+  // Durations are written only when at least one sample has a span. A day of instant
+  // readings gains nothing from a column of zeros.
+  const spans = sorted.some((s) => (s.durationMs ?? 0) > 0);
+
   const file: SeriesFileT = {
     athleticstandard_version: ATHLETIC_STANDARD_VERSION,
     quantity,
@@ -101,6 +114,7 @@ export function buildSeries(
     source,
     offsets_ms: sorted.map((s) => Date.parse(s.at) - startMs),
     values: sorted.map((s) => s.value),
+    ...(spans ? { durations_ms: sorted.map((s) => Math.round(s.durationMs ?? 0)) } : {}),
   };
   const content = serializeSeries(file);
 
@@ -269,8 +283,12 @@ export function readSeriesDay(
 
   const parsed = SeriesFile.parse(JSON.parse(readFileSync(target, "utf8")));
   const startMs = Date.parse(parsed.start);
-  return parsed.offsets_ms.map((offset, i) => ({
-    at: atOffsetOf(parsed.start, startMs + offset),
-    value: parsed.values[i]!,
-  }));
+  return parsed.offsets_ms.map((offset, i) => {
+    const duration = parsed.durations_ms?.[i];
+    return {
+      at: atOffsetOf(parsed.start, startMs + offset),
+      value: parsed.values[i]!,
+      ...(duration ? { durationMs: duration } : {}),
+    };
+  });
 }

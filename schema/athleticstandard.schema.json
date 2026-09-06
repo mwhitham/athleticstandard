@@ -61,6 +61,38 @@
             "description": "e.g. whoop, oura, apple, garmin — omit for kind=manual",
             "type": "string"
           },
+          "writer": {
+            "description": "The app or device that wrote the readings, as the export names it — e.g. 'Apple Watch', 'WHOOP', 'Withings'. An export file is a container, and one container carries readings from many writers (D45). Each gets its own source.",
+            "type": "string"
+          },
+          "via": {
+            "description": "How the readings arrived: 'apple_health', 'whoop_csv', 'oura_csv'. The same writer reaching the file by two routes is two sources, because the routes carry different data.",
+            "type": "string"
+          },
+          "devices": {
+            "description": "Every distinct device seen writing under this name. Recorded, not used to split: a replaced watch that keeps its name stays one source and lists both here.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "manufacturer": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "hardware": {
+                  "description": "e.g. Watch6,2",
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "description": "A physical device seen writing under this source, without version or address"
+            }
+          },
           "sensor": {
             "description": "Which sensor within the device, when one device has several with different accuracy — e.g. 'ecg' versus the optical sensor on the same watch. Separate sensors get separate sources so their baselines never pool.",
             "type": "string"
