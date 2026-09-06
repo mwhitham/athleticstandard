@@ -208,6 +208,8 @@ Points:
 
 Beat series: each SDNN record carries a `HeartRateVariabilityMetadataList` of `InstantaneousBeatsPerMinute` entries. Those become an `hrv_beats` series of intervals in milliseconds, plus a derived `hrv_rmssd` point.
 
+Each beat's `time` is a clock with no date, written in the locale of the phone that produced the export — `13:40:45.22`, `1:40:45.22 PM`, `13:40:45,22`, or a locale's own marker for the half of the day. The digits are read, anything around them is ignored, and the record's own start and end decide which reading of an ambiguous clock was meant (D42). A beat that fits nowhere in that window is counted with the value that failed.
+
 Missed beats are excluded from the calculation rather than merely counted (D35). RMSSD is built from the difference between successive intervals, so a gap in beat detection makes two non-successive intervals look adjacent and invents a large difference — a dropped beat would read as high variability, which is backwards. Continuity is checked against each beat's timestamp and the sequence is split where the gap exceeds 1.5 times the interval the later beat reports.
 
 Remaining guard rails: intervals outside 300–2000 ms dropped as implausible and counted in `n_dropped`, at least 10 continuous pairs, a window of at least 10 seconds, and no derived point at all when too little survives.
@@ -273,7 +275,7 @@ Fixtures live in `tests/fixtures/exports/` and are synthetic. No real health dat
 - WHOOP: the four CSVs with current dashboard headers, journal rows included.
 - Oura: a sleep CSV and a readiness CSV.
 
-Required cases: unit conversion and mapping per importer; RMSSD against a hand-computed value; guard rails (too few beats yields no derived point); millisecond offsets surviving a sidecar round trip; `ath check` catching a tampered sidecar and warning on a missing one; WHOOP journal rows landing in `soft_signals` with no `source`; vendor scores never appearing as point measurements; two sources covering one night producing two records and two separate baselines; re-import being a no-op; a later import replacing a day's series. CLI: zip detection, summary output, unknown format exiting non-zero.
+Required cases: unit conversion and mapping per importer; RMSSD against a hand-computed value; guard rails (too few beats yields no derived point); the same beat list read identically whichever locale wrote its clocks, and a clock that cannot be placed counted rather than dropped (D42); millisecond offsets surviving a sidecar round trip; `ath check` catching a tampered sidecar and warning on a missing one; WHOOP journal rows landing in `soft_signals` with no `source`; vendor scores never appearing as point measurements; two sources covering one night producing two records and two separate baselines; re-import being a no-op; a later import replacing a day's series. CLI: zip detection, summary output, unknown format exiting non-zero.
 
 ## 7. Build order
 

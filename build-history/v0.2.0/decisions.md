@@ -271,3 +271,17 @@ The mechanism already exists and is not ours. Agent hosts discover skills from t
 And there is a governance question that deserves its own decision rather than being settled by accident. This project is not a coach. Skills we ship, we control. A community skill saying "deload this week" is coaching, and building a distribution channel implies endorsement of whatever flows through it. That is a decision to make deliberately, if it is ever made.
 
 Worth recording alongside: the pressure for sport-specific skills may resolve through benchmarks instead. Custom benchmarks are already first-class and user-extensible, while the reasoning procedure — predict before, grade after, explain the miss from recorded evidence — looks sport-agnostic. If that holds, a sport needs a benchmark definition rather than a skill.
+
+## D42. Beat clocks are read by fitting them to the record's own window
+
+Each beat inside an Apple HRV record carries a time of day and no date, and Apple writes that clock in the settings of the phone the export came from. One watch produces `13:40:45.22`, `1:40:45.22 PM`, `13:40:45,22`, or `오후 1:40:45.22`. The parser accepted only the first, so an export from a phone on a 12-hour clock — the default in the United States — lost every beat in the file, and with them every RMSSD an Apple Watch can contribute (D26).
+
+The clock is now read by taking the digits and ignoring whatever surrounds them, then choosing between the readings those digits allow. The record states its own start and end, about a minute apart, and the two readings of a 12-hour clock are twelve hours apart, so only one of them can fall inside the window. A window crossing midnight wraps. Noon and midnight are both written `12`, and the same test settles which was meant.
+
+Rejected alternatives:
+
+- **Recognize each locale's marker.** Would need a table of every language's word for the two halves of the day, kept current against a format Apple does not document. The window already answers the question the marker was going to answer.
+- **Read the marker where it is in English and ignore other locales.** Fixes the common case and leaves the same silent failure everywhere else.
+- **Ignore the timestamps and accumulate each beat's reported rate instead.** This is what the original code did, and D35 rejected it: without timestamps a missed beat is invisible, and every gap reads as variability.
+
+**A reading we cannot place is counted and quoted.** This is the more important half. Beats that failed to parse were dropped individually, which left the window empty, and an empty window was discarded without a word — so the import reported a clean run while removing the most valuable signal in the export. Nothing about the numbers on screen could have revealed it. D34 already required that a skipped row be counted with an example; the rule now applies below the level of a row, to anything inside one.

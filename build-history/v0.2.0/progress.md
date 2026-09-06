@@ -14,8 +14,9 @@ Tracks the build order from `spec.md` §7. Update when a step lands.
 | 8 | Real-export fixes: D32–D36 (running dynamics, unit refusal, beat continuity) | ✅ done |
 | 9 | ECG-derived RMSSD and workout-route splits: D37–D39 | ✅ done |
 | 10 | Grouped series coverage + `ath series`: D40. Skill surface: D41 | ✅ done |
+| 11 | Locale-proof beat clocks: D42. Every source named in the import summary | ✅ done |
 
-State as of 2026-08-31: v0.2.0 complete. 168 tests passing, up from 29.
+State as of 2026-09-06: v0.2.0 complete. 184 tests passing, up from 29.
 
 The last two additions came from looking at what else an export folder actually contains rather than at what the spec listed: the ECG recordings and the GPS routes were both sitting there unread. Both are now used, and both are deliberately reduced to the measurement rather than stored whole — beat intervals without the waveform, splits without the coordinates.
 
@@ -29,6 +30,8 @@ Bugs the build caught, worth remembering. The first two came from testing the co
 - **A real Apple export skipped 928,750 records as unmapped**, including all running dynamics. Fixed in D32, which also records why the remaining skips stay skipped.
 - RMSSD was computed by accumulating each beat's reported rate and ignoring the timestamps, which cannot see a dropped beat. Since a gap makes two non-successive intervals look adjacent, every missed beat was being read as variability. See D35.
 - Two ECG recordings yielded 2 beats where there should have been 35. The R-peak threshold was set as a fraction of the largest value in the recording, so a single motion artifact sat above every genuine beat. A percentile fixed it.
+- **A real Apple export lost every beat in the file, and the import reported a clean run.** Apple writes each beat's time of day in the locale of the phone the export came from, and the parser accepted one spelling of it. Beats that failed to parse were dropped one at a time, which left the HRV window empty, and an empty window was discarded silently — so 12,554 HRV readings produced no RMSSD and no skip line. The worse half of the bug is the silence: nothing in the output could have shown it. See D42.
+- **An import created a second source and never said so.** The ECG readings went under `apple-ecg-1`, correctly kept apart from the watch, but the summary named only `apple-1`. Every source an import writes under is now named.
 - **The sidecar design solved the sample problem and recreated it with the references.** 24,448 per-day records made the document 10.5 MB, about 3 million tokens — unreadable, and growing every year. Grouped per quantity it is 8 KB. See D40. Worth remembering as a shape of mistake: moving a cost somewhere else is not the same as removing it, and the second version can look nothing like the first.
 
 v0.1.0 steps 4–7 (`context` / `log` / `record-prediction` / `grade`, the Skill, `backtest`, polish) are still tracked in [v0.1.0/progress.md](../v0.1.0/progress.md).
