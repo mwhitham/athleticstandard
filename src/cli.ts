@@ -30,6 +30,7 @@ import {
   summarizeDays,
 } from "./seriesview.js";
 import { importExport, PooledFileError, UnknownExportError } from "./import/index.js";
+import { silentProgress, terminalProgress } from "./progress.js";
 import { renderMergeSummary } from "./import/merge.js";
 
 const program = new Command();
@@ -133,10 +134,14 @@ program
       return fail((e as Error).message);
     }
 
+    // The bar draws on stderr and only when a person is watching. Piped output and
+    // tests get the summary alone.
+    const progress = process.stderr.isTTY ? terminalProgress() : silentProgress;
     let result;
     try {
-      result = await importExport(file, athletePath, resolve(process.cwd(), exportPath));
+      result = await importExport(file, athletePath, resolve(process.cwd(), exportPath), progress);
     } catch (e) {
+      progress.finish();
       if (e instanceof UnknownExportError) return fail((e as Error).message);
       if (e instanceof PooledFileError) return fail((e as Error).message);
       return fail(`could not read that export: ${(e as Error).message}`);

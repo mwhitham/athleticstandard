@@ -10,8 +10,7 @@
  * reports HRV only as SDNN, but each SDNN record carries the beats underneath it, so
  * RMSSD can be computed rather than lost (D26).
  */
-import { createReadStream } from "node:fs";
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Readable } from "node:stream";
 import sax from "sax";
@@ -23,6 +22,7 @@ import {
   type SeriesQuantity,
 } from "../schema.js";
 import { buildSeries, type Sample } from "../series.js";
+import { silentProgress, type Progress } from "../progress.js";
 import { rmssdFromBeats, rmssdFromIntervals, type Beat } from "../hrv.js";
 import {
   countSkip,
@@ -364,9 +364,11 @@ interface AppleAccumulator {
   beatWindows: BeatWindow[];
 }
 
-/** Locate export.xml inside whatever the user handed us. */
-async function openAppleXml(detected: DetectedExport): Promise<Readable> {
-  if (detected.container === "file") return createReadStream(detected.path, "utf8");
+/** Locate export.xml inside whatever the user handed us, with its size for the bar. */
+async function openAppleXml(detected: DetectedExport): Promise<{ stream: Readable; size: number }> {
+  if (detected.container === "file") {
+    return { stream: createReadStream(detected.path), size: statSync(detected.path).size };
+  }
 
   if (detected.container === "directory") {
     const candidates = [
@@ -375,7 +377,7 @@ async function openAppleXml(detected: DetectedExport): Promise<Readable> {
     ];
     const found = candidates.find((c) => existsSync(c));
     if (!found) throw new Error(`no export.xml under ${detected.path}`);
-    return createReadStream(found, "utf8");
+    return { stream: createReadStream(found), size: statSync(found).size };
   }
 
   const zip = await openZip(detected.path);
@@ -387,6 +389,7 @@ async function openAppleXml(detected: DetectedExport): Promise<Readable> {
 export async function importAppleHealth(
   detected: DetectedExport,
   sources: SourceBook,
+  progress: Progress = silentProgress,
 ): Promise<ImportPayload> {
   const payload = emptyPayload("apple", `Apple Health export (${detected.container})`);
   const acc: AppleAccumulator = {
@@ -397,15 +400,22 @@ export async function importAppleHealth(
     beatWindows: [],
   };
 
-  const stream = await openAppleXml(detected);
+  const { stream, size } = await openAppleXml(detected);
+  progress.start("reading export.xml", size, "bytes");
+  let bytes = 0;
+  stream.on("data", (chunk: Buffer | string) => {
+    bytes += typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
+    progress.update(bytes);
+  });
   await parseAppleXml(stream, acc, payload, new WriterCache(sources));
+  progress.finish();
 
   payload.hardSignals.push(...acc.points);
-  await attachRouteSplits(detected, acc.workouts, payload);
+  await attachRouteSplits(detected, acc.workouts, payload, progress);
   payload.hardSignals.push(...acc.workouts);
   payload.hardSignals.push(...buildSleepSessions(acc.sleepFragments));
 
-  await importEcgs(detected, sources, payload);
+  await importEcgs(detected, sources, payload, progress);
 
   // Beat windows become a per-day hrv_beats series plus one derived RMSSD each, under
   // the source of the record that carried them.
@@ -741,8 +751,13 @@ async function attachRouteSplits(
   detected: DetectedExport,
   workouts: HardSignalT[],
   payload: ImportPayload,
+  progress: Progress,
 ): Promise<void> {
-  const files = await readEntries(detected, isRouteEntry);
+  const files = await readEntries(detected, isRouteEntry, (done, total) => {
+    if (done === 1) progress.start("reading workout routes", total);
+    progress.update(done);
+  });
+  progress.finish();
   if (files.size === 0) return;
 
   const summaries: RouteSummary[] = [];
@@ -796,8 +811,13 @@ async function importEcgs(
   detected: DetectedExport,
   sources: SourceBook,
   payload: ImportPayload,
+  progress: Progress,
 ): Promise<void> {
-  const files = await readEntries(detected, isEcgEntry);
+  const files = await readEntries(detected, isEcgEntry, (done, total) => {
+    if (done === 1) progress.start("reading ECG recordings", total);
+    progress.update(done);
+  });
+  progress.finish();
   if (files.size === 0) return;
 
   // Created only once a recording exists, so a wearer who has never taken an ECG

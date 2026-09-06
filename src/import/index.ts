@@ -7,6 +7,7 @@
  */
 import type { AthleticStandardFileT, SeriesQuantity, SeriesRefT } from "../schema.js";
 import { assembleSeriesRef, writeSeriesFile } from "../series.js";
+import { silentProgress, type Progress } from "../progress.js";
 import { detectExport, readCsvBundle, type DetectedExport } from "./detect.js";
 import { importAppleHealth } from "./apple.js";
 import { importWhoop } from "./whoop.js";
@@ -54,6 +55,7 @@ export async function importExport(
   file: AthleticStandardFileT,
   athleteFilePath: string,
   exportPath: string,
+  progress: Progress = silentProgress,
 ): Promise<ImportResult> {
   const pooled = pooledSources(file);
   if (pooled.length > 0) throw new PooledFileError(pooled.map((s) => s.id));
@@ -84,9 +86,11 @@ export async function importExport(
     manual: () => manualSourceFor(file),
   };
 
+  // WHOOP and Oura exports import in under a second, so only the Apple importer
+  // reports progress; a bar that appears and vanishes is noise.
   const payload =
     detected.format === "apple"
-      ? await importAppleHealth(detected, sources)
+      ? await importAppleHealth(detected, sources, progress)
       : detected.format === "whoop"
         ? importWhoop(await readCsvBundle(detected), sources)
         : importOura(await readCsvBundle(detected), sources);
@@ -94,7 +98,12 @@ export async function importExport(
   // Sidecars are written before the document is touched, because a coverage record
   // hashes every day on disk for its quantity — including days written by earlier
   // imports, which only the filesystem knows about (D40).
-  for (const built of payload.series) writeSeriesFile(athleteFilePath, built);
+  if (payload.series.length > 0) progress.start("writing series files", payload.series.length);
+  for (const built of payload.series) {
+    writeSeriesFile(athleteFilePath, built);
+    progress.advance();
+  }
+  progress.finish();
 
   const touched = new Map<string, { quantity: SeriesQuantity; source: string }>();
   for (const built of payload.series) {
@@ -104,11 +113,16 @@ export async function importExport(
     });
   }
 
+  // Each coverage record re-hashes every sidecar on disk for its quantity, which on a
+  // long history is the slowest step after the XML itself.
+  if (touched.size > 0) progress.start("recording coverage", touched.size);
   const coverage: SeriesRefT[] = [];
   for (const { quantity, source } of touched.values()) {
     const ref = assembleSeriesRef(athleteFilePath, quantity, source);
     if (ref) coverage.push(ref);
+    progress.advance();
   }
+  progress.finish();
 
   const summary = mergePayload(file, payload, coverage);
 

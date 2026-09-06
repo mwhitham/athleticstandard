@@ -173,6 +173,7 @@ export async function listEntries(detected: DetectedExport): Promise<string[]> {
 export async function readEntries(
   detected: DetectedExport,
   matches: (name: string) => boolean,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const names = (await listEntries(detected)).filter(matches);
@@ -183,6 +184,7 @@ export async function readEntries(
     } else {
       out.set(name, readFileSync(join(detected.auxRoot, name), "utf8"));
     }
+    onProgress?.(out.size, names.length);
   }
   return out;
 }

@@ -67,10 +67,16 @@ export function readZipEntry(zipPath: string, entryName: string): Promise<string
   });
 }
 
+export interface ZipEntryStream {
+  stream: Readable;
+  /** Bytes once inflated, from the central directory. What a progress bar counts against. */
+  size: number;
+}
+
 /**
  * A read stream for one entry, so a large XML never lands in memory whole.
  */
-export function openZipEntryStream(zipPath: string, entryName: string): Promise<Readable> {
+export function openZipEntryStream(zipPath: string, entryName: string): Promise<ZipEntryStream> {
   return new Promise((resolve, reject) => {
     yauzl.open(zipPath, { lazyEntries: true }, (err, zip) => {
       if (err || !zip) return reject(err ?? new Error(`could not open ${zipPath} as a zip`));
@@ -82,7 +88,7 @@ export function openZipEntryStream(zipPath: string, entryName: string): Promise<
           if (streamErr || !stream) {
             return reject(streamErr ?? new Error(`could not read ${entryName}`));
           }
-          resolve(stream as unknown as Readable);
+          resolve({ stream: stream as unknown as Readable, size: entry.uncompressedSize });
         });
       });
       zip.on("end", () => {
@@ -100,6 +106,6 @@ export async function extractZipEntry(
   entryName: string,
   destination: string,
 ): Promise<void> {
-  const stream = await openZipEntryStream(zipPath, entryName);
+  const { stream } = await openZipEntryStream(zipPath, entryName);
   await pipeline(stream, createWriteStream(destination));
 }
