@@ -11,7 +11,13 @@
  * are WHOOP's own composites on WHOOP's own scales (D27).
  */
 import type { HardSignalT, SoftSignalT, SoftSignalTypeT } from "../schema.js";
-import { countSkip, countSkipWithExample, emptyPayload, type ImportPayload } from "./merge.js";
+import {
+  countSkip,
+  countSkipWithExample,
+  emptyPayload,
+  type ImportPayload,
+  type SourceBook,
+} from "./merge.js";
 import { cell, minutesToSeconds, num, parseCsv, positive, withOffset, type Row } from "./csv.js";
 
 /** What we actually saw, quoted, so a format change is legible in the summary. */
@@ -57,8 +63,11 @@ function isAffirmative(answer: string): boolean {
   return /^(true|yes|1)$/i.test(answer.trim());
 }
 
-export function importWhoop(files: Map<string, string>, sourceId: string): ImportPayload {
+export function importWhoop(files: Map<string, string>, sources: SourceBook): ImportPayload {
   const payload = emptyPayload("whoop", "WHOOP via CSV export");
+  // WHOOP's own export has one writer: the strap. The same strap's readings copied
+  // into Apple Health arrive by a different route and get a different source (D45).
+  const sourceId = sources.forWriter({ writer: "WHOOP", vendor: "whoop" });
 
   const cycles = files.get(CYCLES);
   const sleeps = files.get(SLEEPS);

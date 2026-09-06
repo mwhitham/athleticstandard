@@ -1,5 +1,56 @@
 import { describe, expect, it } from "vitest";
-import { beatOffsetMs, parseAppleDate } from "../src/import/apple.js";
+import { beatOffsetMs, parseAppleDate, parseAppleDevice, vendorOf } from "../src/import/apple.js";
+import { writerSlug } from "../src/import/merge.js";
+
+describe("parseAppleDevice", () => {
+  const raw =
+    "<<HKDevice: 0x2809b6800>, name:Apple Watch, manufacturer:Apple Inc., model:Watch, hardware:Watch6,2, software:10.2>";
+
+  it("keeps what describes the physical device and drops what changes on its own", () => {
+    expect(parseAppleDevice(raw)).toEqual({
+      name: "Apple Watch",
+      manufacturer: "Apple Inc.",
+      model: "Watch",
+      hardware: "Watch6,2",
+    });
+  });
+
+  it("survives the comma inside a hardware string", () => {
+    // `Watch6,2` would split in half under a naive comma split.
+    expect(parseAppleDevice(raw)!.hardware).toBe("Watch6,2");
+  });
+
+  it("reads a device written without a memory address", () => {
+    expect(parseAppleDevice("name:iPhone, manufacturer:Apple Inc., model:iPhone, hardware:iPhone15,2")).toEqual({
+      name: "iPhone",
+      manufacturer: "Apple Inc.",
+      model: "iPhone",
+      hardware: "iPhone15,2",
+    });
+  });
+
+  it("returns nothing for an absent or empty attribute rather than inventing a device", () => {
+    expect(parseAppleDevice(undefined)).toBeUndefined();
+    expect(parseAppleDevice("")).toBeUndefined();
+    expect(parseAppleDevice("<<HKDevice: 0x1>, software:10.2>")).toBeUndefined();
+  });
+});
+
+describe("writerSlug and vendorOf", () => {
+  it("drops a leading possessive, so a person's name stays out of the id", () => {
+    expect(writerSlug("Alex's Apple Watch")).toBe("apple-watch");
+    expect(writerSlug("Alex’s iPhone")).toBe("iphone");
+    expect(writerSlug("WHOOP")).toBe("whoop");
+    expect(writerSlug("Oura")).toBe("oura");
+  });
+
+  it("takes the vendor from the manufacturer when there is one, else from the name", () => {
+    expect(vendorOf("Alex's Apple Watch", { manufacturer: "Apple Inc." })).toBe("apple");
+    expect(vendorOf("iPhone")).toBe("apple");
+    expect(vendorOf("Withings")).toBe("withings");
+    expect(vendorOf("WHOOP")).toBe("whoop");
+  });
+});
 
 /** A one-minute HRV reading, the shape Apple's export writes. */
 const START = "2026-08-09T06:12:00-07:00";

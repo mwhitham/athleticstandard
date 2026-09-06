@@ -29,7 +29,7 @@ import {
   renderRawDays,
   summarizeDays,
 } from "./seriesview.js";
-import { importExport, UnknownExportError } from "./import/index.js";
+import { importExport, PooledFileError, UnknownExportError } from "./import/index.js";
 import { renderMergeSummary } from "./import/merge.js";
 
 const program = new Command();
@@ -138,6 +138,7 @@ program
       result = await importExport(file, athletePath, resolve(process.cwd(), exportPath));
     } catch (e) {
       if (e instanceof UnknownExportError) return fail((e as Error).message);
+      if (e instanceof PooledFileError) return fail((e as Error).message);
       return fail(`could not read that export: ${(e as Error).message}`);
     }
 

@@ -17,13 +17,21 @@ import type { Readable } from "node:stream";
 import sax from "sax";
 import {
   POINT_MEASUREMENT_UNITS,
+  type DeviceT,
   type HardSignalT,
   type PointMeasurementType,
   type SeriesQuantity,
 } from "../schema.js";
 import { buildSeries, type Sample } from "../series.js";
 import { rmssdFromBeats, rmssdFromIntervals, type Beat } from "../hrv.js";
-import { countSkip, countSkipWithExample, emptyPayload, type ImportPayload } from "./merge.js";
+import {
+  countSkip,
+  countSkipWithExample,
+  emptyPayload,
+  writerSlug,
+  type ImportPayload,
+  type SourceBook,
+} from "./merge.js";
 import { beatsFromEcg, parseEcgCsv } from "./ecg.js";
 import { parseGpx, summarizeRoute, type RouteSummary } from "./routes.js";
 import { isEcgEntry, isRouteEntry, readEntries, type DetectedExport } from "./detect.js";
@@ -167,12 +175,114 @@ interface SleepFragment {
   start: string;
   end: string;
   value: string;
+  source: string;
 }
 
 interface BeatWindow {
   recordedAt: string;
   endsAt: string | null;
   beats: Beat[];
+  source: string;
+}
+
+/** Fields Apple writes inside a `device` attribute, in the order they appear. */
+const DEVICE_FIELDS = [
+  "name",
+  "manufacturer",
+  "model",
+  "hardware",
+  "software",
+  "firmware",
+  "localIdentifier",
+  "UDI",
+] as const;
+
+/**
+ * Read the stable parts of Apple's device string.
+ *
+ * `<<HKDevice: 0x2809b6800>, name:Apple Watch, manufacturer:Apple Inc., model:Watch,
+ * hardware:Watch6,2, software:10.2>`. The address is different every time the phone
+ * runs and the software changes every update, so neither is kept. Values can hold a
+ * comma — `Watch6,2` — so the string is cut at the field names, not at commas.
+ */
+export function parseAppleDevice(raw: string | undefined): DeviceT | undefined {
+  if (!raw) return undefined;
+  const body = raw.replace(/^<<HKDevice:[^>]*>,?\s*/, "").replace(/>\s*$/, "");
+
+  const fieldAt = new RegExp(`(?:^|,\\s*)(${DEVICE_FIELDS.join("|")}):`, "g");
+  const hits: { key: string; valueStart: number; matchStart: number }[] = [];
+  for (const m of body.matchAll(fieldAt)) {
+    hits.push({ key: m[1]!, valueStart: m.index! + m[0].length, matchStart: m.index! });
+  }
+  if (hits.length === 0) return undefined;
+
+  const fields: Record<string, string> = {};
+  hits.forEach((hit, i) => {
+    const end = i + 1 < hits.length ? hits[i + 1]!.matchStart : body.length;
+    const value = body.slice(hit.valueStart, end).trim();
+    if (value) fields[hit.key] = value;
+  });
+
+  const device: DeviceT = {
+    ...(fields.name ? { name: fields.name } : {}),
+    ...(fields.manufacturer ? { manufacturer: fields.manufacturer } : {}),
+    ...(fields.model ? { model: fields.model } : {}),
+    ...(fields.hardware ? { hardware: fields.hardware } : {}),
+  };
+  return Object.keys(device).length > 0 ? device : undefined;
+}
+
+/** Writers that are the Health app itself: the person typed the number in. */
+const HAND_ENTERED_WRITERS = new Set(["health", "manual"]);
+
+/**
+ * Vendor slug for a writer. The manufacturer settles it when the device names one;
+ * otherwise Apple's own devices are recognised by name and anything else is taken
+ * from the first word of the writer.
+ */
+export function vendorOf(writer: string, device?: DeviceT): string {
+  if (device?.manufacturer) return writerSlug(device.manufacturer).split("-")[0] ?? "unknown";
+  const slug = writerSlug(writer);
+  if (/^(iphone|ipad|apple)(-|$)/.test(slug)) return "apple";
+  return slug.split("-")[0] ?? "unknown";
+}
+
+/**
+ * Source ids for the writers met while parsing, resolved once per distinct
+ * (name, device) pair. An export holds a million records from a dozen writers, so the
+ * lookup has to be a map hit, not a search.
+ */
+class WriterCache {
+  private readonly ids = new Map<string, string>();
+  private readonly devices = new Map<string, DeviceT | undefined>();
+
+  constructor(private readonly sources: SourceBook) {}
+
+  resolve(attrs: Record<string, string>): string {
+    const writer = (attrs.sourceName ?? "").trim() || "Unknown";
+    const rawDevice = attrs.device ?? "";
+    const key = `${writer}\u0000${rawDevice}`;
+    const hit = this.ids.get(key);
+    if (hit) return hit;
+
+    let id: string;
+    if (HAND_ENTERED_WRITERS.has(writer.toLowerCase())) {
+      id = this.sources.manual();
+    } else {
+      let device = this.devices.get(rawDevice);
+      if (!this.devices.has(rawDevice)) {
+        device = parseAppleDevice(rawDevice);
+        this.devices.set(rawDevice, device);
+      }
+      id = this.sources.forWriter({
+        writer,
+        vendor: vendorOf(writer, device),
+        ...(device ? { device } : {}),
+      });
+    }
+    this.ids.set(key, id);
+    return id;
+  }
 }
 
 const DAY_MS = 86_400_000;
@@ -238,12 +348,19 @@ export function beatOffsetMs(
   return best;
 }
 
+/** One writer's samples for one quantity, bucketed by day. */
+interface SeriesBucket {
+  quantity: SeriesQuantity;
+  source: string;
+  byDay: Map<string, Sample[]>;
+}
+
 interface AppleAccumulator {
   points: HardSignalT[];
   sleepFragments: SleepFragment[];
   workouts: HardSignalT[];
-  /** quantity -> day -> samples */
-  series: Map<SeriesQuantity, Map<string, Sample[]>>;
+  /** `${quantity}|${source}` -> bucket. Two writers of one quantity never share a file. */
+  series: Map<string, SeriesBucket>;
   beatWindows: BeatWindow[];
 }
 
@@ -269,8 +386,7 @@ async function openAppleXml(detected: DetectedExport): Promise<Readable> {
 
 export async function importAppleHealth(
   detected: DetectedExport,
-  sourceId: string,
-  ecgSourceId?: string,
+  sources: SourceBook,
 ): Promise<ImportPayload> {
   const payload = emptyPayload("apple", `Apple Health export (${detected.container})`);
   const acc: AppleAccumulator = {
@@ -282,30 +398,32 @@ export async function importAppleHealth(
   };
 
   const stream = await openAppleXml(detected);
-  await parseAppleXml(stream, acc, payload, sourceId);
+  await parseAppleXml(stream, acc, payload, new WriterCache(sources));
 
   payload.hardSignals.push(...acc.points);
   await attachRouteSplits(detected, acc.workouts, payload);
   payload.hardSignals.push(...acc.workouts);
-  payload.hardSignals.push(...buildSleepSessions(acc.sleepFragments, sourceId));
+  payload.hardSignals.push(...buildSleepSessions(acc.sleepFragments));
 
-  if (ecgSourceId) await importEcgs(detected, ecgSourceId, payload);
+  await importEcgs(detected, sources, payload);
 
-  // Beat windows become a per-day hrv_beats series plus one derived RMSSD each.
-  const beatsByDay = new Map<string, Sample[]>();
+  // Beat windows become a per-day hrv_beats series plus one derived RMSSD each, under
+  // the source of the record that carried them.
+  const beatsByDay = new Map<string, { source: string; day: string; samples: Sample[] }>();
   for (const window of acc.beatWindows) {
     const day = localDay(window.recordedAt);
-    const samples = beatsByDay.get(day) ?? [];
+    const key = `${window.source}|${day}`;
+    const bucket = beatsByDay.get(key) ?? { source: window.source, day, samples: [] };
     // Each beat is placed where the export says it fell, not where accumulating
     // intervals would put it, so a missed beat stays visible as a gap.
     const windowStartMs = Date.parse(window.recordedAt);
     for (const beat of window.beats) {
-      samples.push({
+      bucket.samples.push({
         at: atOffsetOf(window.recordedAt, windowStartMs + beat.offsetMs),
         value: Math.round(beat.intervalMs * 10) / 10,
       });
     }
-    beatsByDay.set(day, samples);
+    beatsByDay.set(key, bucket);
 
     const rmssd = rmssdFromBeats(window.beats);
     if (!rmssd) {
@@ -317,7 +435,7 @@ export async function importAppleHealth(
       value: rmssd.rmssd_ms,
       unit: "ms",
       recorded_at: window.recordedAt,
-      source: sourceId,
+      source: window.source,
       derived: {
         from: "hrv_beats",
         method: "rmssd",
@@ -327,14 +445,14 @@ export async function importAppleHealth(
       },
     });
   }
-  for (const [day, samples] of beatsByDay) {
-    const built = buildSeries("hrv_beats", sourceId, day, samples);
+  for (const { source, day, samples } of beatsByDay.values()) {
+    const built = buildSeries("hrv_beats", source, day, samples);
     if (built) payload.series.push(built);
   }
 
-  for (const [quantity, byDay] of acc.series) {
-    for (const [day, samples] of byDay) {
-      const built = buildSeries(quantity, sourceId, day, samples);
+  for (const bucket of acc.series.values()) {
+    for (const [day, samples] of bucket.byDay) {
+      const built = buildSeries(bucket.quantity, bucket.source, day, samples);
       if (built) payload.series.push(built);
     }
   }
@@ -346,7 +464,7 @@ function parseAppleXml(
   stream: Readable,
   acc: AppleAccumulator,
   payload: ImportPayload,
-  sourceId: string,
+  writers: WriterCache,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const parser = sax.createStream(true, { trim: true, lowercase: false });
@@ -354,7 +472,13 @@ function parseAppleXml(
     // Record-level state: a Record element may carry a nested beat list, and a
     // Workout may carry laps, so both need somewhere to collect children.
     let currentBeatWindow: BeatWindow | null = null;
-    let currentWorkout: { start: string; end: string; segments: { label: string; duration_s?: number }[]; aggregates: Record<string, unknown> } | null = null;
+    let currentWorkout: {
+      start: string;
+      end: string;
+      source: string;
+      segments: { label: string; duration_s?: number }[];
+      aggregates: Record<string, unknown>;
+    } | null = null;
 
     parser.on("error", (err) => reject(err));
     parser.on("end", () => resolve());
@@ -428,7 +552,7 @@ function parseAppleXml(
           }
           const energy = Number(attrs.totalEnergyBurned);
           if (Number.isFinite(energy) && energy > 0) aggregates.energy_kcal = round(energy);
-          currentWorkout = { start, end, segments: [], aggregates };
+          currentWorkout = { start, end, source: writers.resolve(attrs), segments: [], aggregates };
           break;
         }
 
@@ -470,7 +594,7 @@ function parseAppleXml(
           type: "workout_session",
           start: currentWorkout.start,
           end: currentWorkout.end,
-          source: sourceId,
+          source: currentWorkout.source,
           aggregates: currentWorkout.aggregates as never,
           ...(currentWorkout.segments.length > 0 ? { segments: currentWorkout.segments as never } : {}),
         });
@@ -493,7 +617,12 @@ function parseAppleXml(
           countSkip(payload, "sleep records with an unreadable date");
           return;
         }
-        acc.sleepFragments.push({ start: startDate, end: endDate, value: attrs.value ?? "" });
+        acc.sleepFragments.push({
+          start: startDate,
+          end: endDate,
+          value: attrs.value ?? "",
+          source: writers.resolve(attrs),
+        });
         return;
       }
 
@@ -526,7 +655,7 @@ function parseAppleXml(
           value: round(converted),
           unit: POINT_MEASUREMENT_UNITS[point.type],
           recorded_at: startDate,
-          source: sourceId,
+          source: writers.resolve(attrs),
         } as HardSignalT);
         return;
       }
@@ -551,17 +680,28 @@ function parseAppleXml(
           );
           return;
         }
-        const byDay = acc.series.get(series.quantity) ?? new Map<string, Sample[]>();
+        const source = writers.resolve(attrs);
+        const key = `${series.quantity}|${source}`;
+        const bucket =
+          acc.series.get(key) ?? { quantity: series.quantity, source, byDay: new Map<string, Sample[]>() };
         const day = localDay(startDate);
-        const samples = byDay.get(day) ?? [];
-        samples.push({ at: startDate, value: round(value) });
-        byDay.set(day, samples);
-        acc.series.set(series.quantity, byDay);
+        const samples = bucket.byDay.get(day) ?? [];
+
+        // A sample that covers a span keeps its length: "420 steps from 9:00 to 9:05"
+        // is a rate only if the five minutes survive. An instant reading has none.
+        const durationMs = endDate ? Date.parse(endDate) - Date.parse(startDate) : 0;
+        samples.push({
+          at: startDate,
+          value: round(value),
+          ...(durationMs > 0 ? { durationMs } : {}),
+        });
+        bucket.byDay.set(day, samples);
+        acc.series.set(key, bucket);
 
         // An SDNN record may carry the beats it was computed from. Its end time comes
         // along because the window is what places each beat's clock.
         if (series.quantity === "hrv_sdnn") {
-          currentBeatWindow = { recordedAt: startDate, endsAt: endDate, beats: [] };
+          currentBeatWindow = { recordedAt: startDate, endsAt: endDate, beats: [], source };
         }
         return;
       }
@@ -644,10 +784,15 @@ async function attachRouteSplits(
  */
 async function importEcgs(
   detected: DetectedExport,
-  ecgSourceId: string,
+  sources: SourceBook,
   payload: ImportPayload,
 ): Promise<void> {
   const files = await readEntries(detected, isEcgEntry);
+  if (files.size === 0) return;
+
+  // Created only once a recording exists, so a wearer who has never taken an ECG
+  // gets no empty source.
+  const ecgSourceId = sources.forWriter({ writer: "Apple Watch", vendor: "apple", sensor: "ecg" });
   const beatsByDay = new Map<string, Sample[]>();
 
   for (const [name, text] of files) {
@@ -715,8 +860,18 @@ async function importEcgs(
 /**
  * Apple writes sleep as many overlapping stage records. Cluster them into nights,
  * then total the stages inside each.
+ *
+ * Clustered per writer. A watch and a ring both recording one night are two
+ * observations of it, not one, and folding their stages together would produce a
+ * night nobody measured (D31, D45).
  */
-export function buildSleepSessions(fragments: SleepFragment[], sourceId: string): HardSignalT[] {
+export function buildSleepSessions(fragments: SleepFragment[]): HardSignalT[] {
+  const bySource = new Map<string, SleepFragment[]>();
+  for (const f of fragments) bySource.set(f.source, [...(bySource.get(f.source) ?? []), f]);
+  return [...bySource].flatMap(([sourceId, own]) => clusterNights(own, sourceId));
+}
+
+function clusterNights(fragments: SleepFragment[], sourceId: string): HardSignalT[] {
   if (fragments.length === 0) return [];
 
   const sorted = [...fragments].sort((a, b) => Date.parse(a.start) - Date.parse(b.start));

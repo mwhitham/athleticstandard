@@ -8,7 +8,7 @@
  * being written as a body temperature (D28).
  */
 import type { HardSignalT } from "../schema.js";
-import { countSkip, emptyPayload, type ImportPayload } from "./merge.js";
+import { countSkip, emptyPayload, type ImportPayload, type SourceBook } from "./merge.js";
 import { cell, num, parseCsv, positive, withOffset, type Row } from "./csv.js";
 
 /** Measurements taken from a sleep row. Oura already reports durations in seconds. */
@@ -54,8 +54,9 @@ const CONTRIBUTORS = [
   "sleep_regularity",
 ];
 
-export function importOura(files: Map<string, string>, sourceId: string): ImportPayload {
+export function importOura(files: Map<string, string>, sources: SourceBook): ImportPayload {
   const payload = emptyPayload("oura", "Oura via CSV export");
+  const sourceId = sources.forWriter({ writer: "Oura", vendor: "oura" });
 
   for (const [name, text] of files) {
     const rows = parseCsv(text);

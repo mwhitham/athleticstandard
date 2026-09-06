@@ -67,13 +67,13 @@ describe("ath series", () => {
 
   it("narrows to one source, so two sensors stay apart", () => {
     // The ECG sensor writes its own beats under its own source (D37).
-    const ecg = ath(["series", "ecg_beats", "--source", "apple-ecg-1", "--json"], dir);
+    const ecg = ath(["series", "ecg_beats", "--source", "apple-watch-ecg-1", "--json"], dir);
     expect(ecg.code).toBe(0);
-    expect(JSON.parse(ecg.stdout).days[0].source).toBe("apple-ecg-1");
+    expect(JSON.parse(ecg.stdout).days[0].source).toBe("apple-watch-ecg-1");
 
-    const wrong = ath(["series", "ecg_beats", "--source", "apple-1"], dir);
+    const wrong = ath(["series", "ecg_beats", "--source", "apple-watch-1"], dir);
     expect(wrong.code).toBe(1);
-    expect(wrong.stdout).toContain("no ecg_beats series recorded for source 'apple-1'");
+    expect(wrong.stdout).toContain("no ecg_beats series recorded for source 'apple-watch-1'");
   });
 
   it("names the quantities it knows when given one it does not", () => {

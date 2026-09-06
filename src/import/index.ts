@@ -7,17 +7,18 @@
  */
 import type { AthleticStandardFileT, SeriesQuantity, SeriesRefT } from "../schema.js";
 import { assembleSeriesRef, writeSeriesFile } from "../series.js";
-import {
-  detectExport,
-  isEcgEntry,
-  listEntries,
-  readCsvBundle,
-  type DetectedExport,
-} from "./detect.js";
+import { detectExport, readCsvBundle, type DetectedExport } from "./detect.js";
 import { importAppleHealth } from "./apple.js";
 import { importWhoop } from "./whoop.js";
 import { importOura } from "./oura.js";
-import { mergePayload, upsertSource, type MergeSummary } from "./merge.js";
+import {
+  manualSourceFor,
+  mergePayload,
+  pooledSources,
+  sourceFor,
+  type MergeSummary,
+  type SourceBook,
+} from "./merge.js";
 
 export { detectExport, UnknownExportError } from "./detect.js";
 
@@ -32,6 +33,19 @@ export interface ImportResult {
   label: string;
 }
 
+/** Thrown when the file was written before readings were labelled by writer (D45). */
+export class PooledFileError extends Error {
+  constructor(sourceIds: string[]) {
+    super(
+      `this file labels every reading in an export with one source (${sourceIds.join(", ")}), ` +
+        `so a watch and a scale share a name. Newer imports keep each device apart, and ` +
+        `nothing in this file says which reading came from which device — only the original ` +
+        `export does. Run \`ath init\` in a new folder and import your exports there.`,
+    );
+    this.name = "PooledFileError";
+  }
+}
+
 /**
  * Import `exportPath` into `file`, writing sidecars beside `athleteFilePath`.
  * Mutates `file`; the caller saves it.
@@ -41,41 +55,41 @@ export async function importExport(
   athleteFilePath: string,
   exportPath: string,
 ): Promise<ImportResult> {
+  const pooled = pooledSources(file);
+  if (pooled.length > 0) throw new PooledFileError(pooled.map((s) => s.id));
+
   const detected = await detectExport(exportPath);
   const label = `${VENDOR_LABELS[detected.format]} export`;
+  const via =
+    detected.format === "apple" ? "apple_health" : detected.format === "whoop" ? "whoop_csv" : "oura_csv";
+  const container =
+    detected.container === "zip"
+      ? "zip export"
+      : detected.container === "directory"
+        ? "export folder"
+        : detected.format === "apple"
+          ? "export.xml"
+          : "CSV export";
 
-  // The source id has to exist before parsing, because every signal an importer
-  // builds references it.
-  const detail = `${VENDOR_LABELS[detected.format]} via ${detected.container === "zip" ? "zip export" : detected.container === "directory" ? "export folder" : "CSV export"}`;
-  const sourceId = upsertSource(file, detected.format, detail);
-
-  // An Apple export carrying ECG recordings gets a second source for them. The
-  // electrical and optical sensors on one watch disagree substantially, so their
-  // readings are kept apart (D37). Created only when recordings are actually present,
-  // so a wearer who has never taken an ECG gets no empty source.
-  let ecgSourceId: string | undefined;
-  if (detected.format === "apple") {
-    const entries = await listEntries(detected);
-    if (entries.some(isEcgEntry)) {
-      ecgSourceId = upsertSource(
-        file,
-        "apple",
-        `${VENDOR_LABELS.apple} ECG recordings`,
-        "ecg",
-      );
-    }
-  }
+  // One place owns how a source describes itself, so the three importers cannot
+  // drift into three phrasings for the same idea.
+  const vendorLabel = VENDOR_LABELS[detected.format];
+  const sources: SourceBook = {
+    forWriter: (spec) => {
+      const who = `${spec.writer}${spec.sensor ? ` ${spec.sensor}` : ""}`;
+      // "WHOOP via WHOOP CSV export" says the same thing twice.
+      const route = spec.writer === vendorLabel ? `${vendorLabel} ${container}` : `${who} via ${vendorLabel} ${container}`;
+      return sourceFor(file, { ...spec, via, detail: route });
+    },
+    manual: () => manualSourceFor(file),
+  };
 
   const payload =
     detected.format === "apple"
-      ? await importAppleHealth(detected, sourceId, ecgSourceId)
+      ? await importAppleHealth(detected, sources)
       : detected.format === "whoop"
-        ? importWhoop(await readCsvBundle(detected), sourceId)
-        : importOura(await readCsvBundle(detected), sourceId);
-
-  // One place owns how a source is described, so the three importers cannot drift
-  // into three different phrasings for the same idea.
-  payload.detail = detail;
+        ? importWhoop(await readCsvBundle(detected), sources)
+        : importOura(await readCsvBundle(detected), sources);
 
   // Sidecars are written before the document is touched, because a coverage record
   // hashes every day on disk for its quantity — including days written by earlier

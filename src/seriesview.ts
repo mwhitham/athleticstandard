@@ -140,7 +140,19 @@ export function renderRawDays(quantity: string, unit: string, days: RawDay[]): s
   const lines: string[] = [];
   for (const day of days) {
     lines.push(`${day.day} · ${day.source} · ${quantity} (${unit}) · ${day.samples.length} samples`);
-    for (const sample of day.samples) lines.push(`  ${sample.at}  ${sample.value}`);
+    for (const sample of day.samples) {
+      const span = sample.durationMs ? `  over ${describeSpan(sample.durationMs)}` : "";
+      lines.push(`  ${sample.at}  ${sample.value}${span}`);
+    }
   }
   return lines.join("\n");
+}
+
+/** "5m", "1m 30s", "3s" — how long a sample covered, for a person reading the rows. */
+function describeSpan(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rest = s % 60;
+  return rest === 0 ? `${m}m` : `${m}m ${rest}s`;
 }

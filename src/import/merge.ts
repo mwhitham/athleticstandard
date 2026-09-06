@@ -9,6 +9,7 @@
  */
 import type {
   AthleticStandardFileT,
+  DeviceT,
   HardSignalT,
   SeriesRefT,
   SoftSignalT,
@@ -30,10 +31,9 @@ export interface ImportPayload {
 }
 
 export interface MergeSummary {
-  sourceId: string;
-  /** What was added, per source: an Apple export also writes under its ECG source. */
+  /** What was added, per source. One export writes under as many sources as it has writers. */
   added: Map<string, Map<string, number>>;
-  /** How each source involved describes itself, so an extra one explains itself. */
+  /** Every source this import touched, with how it describes itself. */
   sourceDetails: Map<string, string>;
   duplicates: number;
   softAdded: number;
@@ -81,45 +81,138 @@ export function countSkipWithExample(
 }
 
 /**
- * Find or create the source for this import.
+ * Who wrote a set of readings, and how they reached the file.
  *
- * Reused when a matching vendor, kind, and sensor already exist, so importing a
- * second export from the same device does not create `apple-2` and split that
- * device's history across two baselines.
- *
- * `sensor` separates two sensors inside one device. An Apple Watch measures beats
- * optically all day and electrically when the wearer takes an ECG, and the two
- * disagree substantially — so they get separate sources and their baselines never
- * pool, for the same reason two different devices do not pool (D31).
+ * An export file is a container. One Apple Health export carries readings from the
+ * watch, the phone, a scale, a blood-pressure cuff, and any app that writes into
+ * Health — including WHOOP and Oura. Each writer is its own source (D45), because
+ * a baseline pooled across a watch and a scale describes neither.
  */
-export function upsertSource(
-  file: AthleticStandardFileT,
-  vendor: string,
-  detail: string,
-  sensor?: string,
-): string {
+export interface WriterSpec {
+  /** The name the export gives the writer: "Apple Watch", "WHOOP", "Withings". */
+  writer: string;
+  /** The route into the file: "apple_health", "whoop_csv", "oura_csv". */
+  via: string;
+  /** Vendor slug, for readers grouping by maker: "apple", "whoop", "withings". */
+  vendor: string;
+  /** A second sensor inside one device that must not pool with the first (D37). */
+  sensor?: string;
+  detail: string;
+  /** The device behind this batch of readings, when the export names one. */
+  device?: DeviceT;
+}
+
+/**
+ * Hands an importer a source id for each writer it meets, creating sources in the
+ * file as it goes. Importers never see the file; this is the one door.
+ */
+export interface SourceBook {
+  /** The source for readings a named app or device wrote. */
+  forWriter(spec: Omit<WriterSpec, "via" | "detail">): string;
+  /** The source for readings a person typed in. */
+  manual(): string;
+}
+
+/**
+ * Turn a writer's name into an id stem. A leading possessive is dropped — "Alex's
+ * Apple Watch" and "Apple Watch" name the same kind of thing, and a person's name
+ * does not belong in an identifier.
+ */
+export function writerSlug(writer: string): string {
+  const stripped = writer.replace(/^\S+['’]s\s+/u, "");
+  const slug = stripped
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "unknown";
+}
+
+const sameDevice = (a: DeviceT, b: DeviceT) =>
+  a.name === b.name &&
+  a.manufacturer === b.manufacturer &&
+  a.model === b.model &&
+  a.hardware === b.hardware;
+
+/**
+ * Find or create the source for a writer.
+ *
+ * Matched on writer, route, and sensor — never on the device. A replaced watch that
+ * keeps its name stays one source and lists both devices, because splitting on the
+ * device would also split one watch whose older readings lack a device attribute,
+ * which is the pooling error this exists to fix, inverted. A software update changes
+ * neither the name nor the device fields kept here, so it never splits anything.
+ *
+ * The same writer arriving by two routes is two sources. WHOOP's copy into Apple
+ * Health is a rounded subset of WHOOP's own export; pooling them would hide that.
+ */
+export function sourceFor(file: AthleticStandardFileT, spec: WriterSpec): string {
   const existing = file.sources.find(
-    (s) => s.vendor === vendor && s.kind === "export_file" && s.sensor === sensor,
+    (s) =>
+      s.kind === "export_file" &&
+      s.writer === spec.writer &&
+      s.via === spec.via &&
+      s.sensor === spec.sensor,
   );
   if (existing) {
-    existing.detail = detail;
+    existing.detail = spec.detail;
+    if (spec.device) recordDevice(existing, spec.device);
     return existing.id;
   }
 
-  const stem = sensor ? `${vendor}-${sensor}` : vendor;
+  const stem = spec.sensor ? `${writerSlug(spec.writer)}-${spec.sensor}` : writerSlug(spec.writer);
+  const source: SourceT = {
+    id: freshId(file, stem),
+    kind: "export_file",
+    vendor: spec.vendor,
+    writer: spec.writer,
+    via: spec.via,
+    ...(spec.sensor ? { sensor: spec.sensor } : {}),
+    detail: spec.detail,
+  };
+  if (spec.device) recordDevice(source, spec.device);
+  file.sources.push(source);
+  return source.id;
+}
+
+function recordDevice(source: SourceT, device: DeviceT): void {
+  if (Object.values(device).every((v) => v === undefined)) return;
+  const devices = source.devices ?? [];
+  if (!devices.some((d) => sameDevice(d, device))) devices.push(device);
+  source.devices = devices;
+}
+
+/**
+ * The source for numbers a person typed in. `init` creates one; an export that
+ * carries hand-entered readings reuses it rather than inventing a device.
+ */
+export function manualSourceFor(file: AthleticStandardFileT): string {
+  const existing = file.sources.find((s) => s.kind === "manual");
+  if (existing) return existing.id;
+  const source: SourceT = {
+    id: freshId(file, "manual"),
+    kind: "manual",
+    detail: "Hand-entered data",
+  };
+  file.sources.push(source);
+  return source.id;
+}
+
+function freshId(file: AthleticStandardFileT, stem: string): string {
   const taken = new Set(file.sources.map((s) => s.id));
   let id = `${stem}-1`;
   for (let n = 2; taken.has(id); n++) id = `${stem}-${n}`;
-
-  const source: SourceT = {
-    id,
-    kind: "export_file",
-    vendor,
-    ...(sensor ? { sensor } : {}),
-    detail,
-  };
-  file.sources.push(source);
   return id;
+}
+
+/**
+ * Files written before D45 labelled every reading in an export with one source, so
+ * a scale and a watch share `apple-1`. Nothing in such a file says which reading came
+ * from which device — only the original export does — so it cannot be repaired in
+ * place, and importing on top of it would leave the pooled history beside the
+ * separated one, counted twice. The tell is an export source with no writer.
+ */
+export function pooledSources(file: AthleticStandardFileT): SourceT[] {
+  return file.sources.filter((s) => s.kind === "export_file" && !s.writer);
 }
 
 /**
@@ -162,8 +255,6 @@ export function mergePayload(
   payload: ImportPayload,
   groupRefs: SeriesRefT[] = [],
 ): MergeSummary {
-  const sourceId = upsertSource(file, payload.vendor, payload.detail);
-
   const added = new Map<string, Map<string, number>>();
   let duplicates = 0;
 
@@ -219,13 +310,15 @@ export function mergePayload(
   file.hard_signals.sort((a, b) => Date.parse(signalTimestamp(a)) - Date.parse(signalTimestamp(b)));
   file.soft_signals.sort((a, b) => Date.parse(a.reported_at) - Date.parse(b.reported_at));
 
-  const involved = new Set([sourceId, ...added.keys(), ...groupRefs.map((r) => r.source)]);
+  const involved = new Set([
+    ...payload.hardSignals.map((s) => s.source),
+    ...groupRefs.map((r) => r.source),
+  ]);
   const sourceDetails = new Map(
-    file.sources.filter((s) => involved.has(s.id)).map((s) => [s.id, s.detail ?? s.kind]),
+    file.sources.filter((s) => involved.has(s.id)).map((s) => [s.id, describeSource(s)]),
   );
 
   return {
-    sourceId,
     added,
     sourceDetails,
     movedToSeries,
@@ -239,35 +332,44 @@ export function mergePayload(
   };
 }
 
+/** How a source introduces itself in a summary: the writer, or the kind when there is none. */
+export function describeSource(source: SourceT): string {
+  if (source.kind === "manual") return "typed in by hand";
+  if (source.writer) {
+    const sensor = source.sensor ? `, ${source.sensor}` : "";
+    return `${source.writer}${sensor}`;
+  }
+  return source.detail ?? source.kind;
+}
+
 /** The summary printed after an import. */
 export function renderMergeSummary(summary: MergeSummary, label: string): string {
   const lines: string[] = [];
-  lines.push(`imported ${label} as source '${summary.sourceId}'`);
+  lines.push(`imported ${label}`);
 
   const counts = (bySource: Map<string, number> | undefined) =>
     [...(bySource ?? new Map<string, number>())].sort((a, b) => b[1] - a[1]);
   const totalAdded = [...summary.added.values()]
     .flatMap((bySource) => [...bySource.values()])
     .reduce((a, b) => a + b, 0);
-  if (totalAdded === 0 && summary.softAdded === 0) {
+  if (totalAdded === 0 && summary.softAdded === 0 && summary.seriesWritten.length === 0) {
     lines.push("  nothing new — every record was already in the file");
   }
 
-  for (const [type, count] of counts(summary.added.get(summary.sourceId))) {
-    lines.push(`  ${type}: ${count}`);
+  // Every source is named, with what wrote it. An export is a container for readings
+  // from many devices and apps, and a reading filed under a name nobody was told
+  // about is a reading the wearer cannot find (D45).
+  const bySourceSize = [...summary.added].sort(
+    (a, b) =>
+      [...b[1].values()].reduce((x, y) => x + y, 0) - [...a[1].values()].reduce((x, y) => x + y, 0),
+  );
+  for (const [id, bySource] of bySourceSize) {
+    const detail = summary.sourceDetails.get(id);
+    lines.push(`  ${id}${detail ? ` (${detail})` : ""}:`);
+    for (const [type, count] of counts(bySource)) lines.push(`    ${type}: ${count}`);
   }
   if (summary.softAdded > 0) {
     lines.push(`  soft signals (self-reported): ${summary.softAdded}`);
-  }
-
-  // One export can write under more than one source: an Apple Watch measures beats
-  // optically all day and electrically during an ECG, and those readings are kept
-  // apart (D37). Naming the extra source is the only way the wearer learns it exists.
-  for (const [id, bySource] of summary.added) {
-    if (id === summary.sourceId) continue;
-    const detail = summary.sourceDetails.get(id);
-    lines.push(`  also under source '${id}'${detail ? ` (${detail})` : ""}:`);
-    for (const [type, count] of counts(bySource)) lines.push(`    ${type}: ${count}`);
   }
 
   // Years of data means thousands of sidecars, so the file count is one line and the
@@ -280,14 +382,14 @@ export function renderMergeSummary(summary: MergeSummary, label: string): string
   }
 
   if (summary.coverage.length > 0) {
-    // Named per line only when the import wrote under more than one source, since
-    // otherwise every line would repeat the source named two lines above.
-    const manySources = new Set(summary.coverage.map((r) => r.source)).size > 1;
     lines.push(`  series coverage now recorded:`);
-    for (const ref of [...summary.coverage].sort((a, b) => a.quantity.localeCompare(b.quantity))) {
+    const ordered = [...summary.coverage].sort(
+      (a, b) => a.quantity.localeCompare(b.quantity) || a.source.localeCompare(b.source),
+    );
+    for (const ref of ordered) {
       const span = ref.from === ref.to ? ref.from : `${ref.from} → ${ref.to}`;
       lines.push(
-        `    ${ref.quantity}${manySources ? ` (${ref.source})` : ""}: ` +
+        `    ${ref.quantity} (${ref.source}): ` +
           `${ref.n} sample${ref.n === 1 ? "" : "s"} across ` +
           `${ref.days} day${ref.days === 1 ? "" : "s"} (${span})`,
       );

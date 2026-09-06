@@ -115,6 +115,33 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
   }
   lines.push("");
 
+  // Every source, with what wrote it. An export is a container; the writer is the
+  // device or app behind the readings, and a reader asking "watch versus ring" needs
+  // to know which id is which (D45).
+  const readingsBySource = new Map<string, number>();
+  for (const s of file.hard_signals) {
+    readingsBySource.set(s.source, (readingsBySource.get(s.source) ?? 0) + 1);
+  }
+  lines.push(`sources: ${file.sources.length}`);
+  for (const src of file.sources) {
+    const what =
+      src.kind === "manual"
+        ? "typed in by hand"
+        : [src.writer, src.sensor, src.via ? `via ${src.via}` : undefined]
+            .filter(Boolean)
+            .join(", ") || (src.detail ?? src.kind);
+    const devices = (src.devices ?? [])
+      .map((d) => [d.name, d.hardware].filter(Boolean).join(" "))
+      .filter(Boolean);
+    const n = readingsBySource.get(src.id) ?? 0;
+    lines.push(
+      `  ${src.id}: ${what}` +
+        (devices.length > 0 ? ` [${devices.join("; ")}]` : "") +
+        ` — ${n} record${n === 1 ? "" : "s"}`,
+    );
+  }
+  lines.push("");
+
   // Baselines are listed per source, never pooled (D31). A reader comparing two
   // devices should see two numbers and decide, not one number hiding a disagreement.
   const baselineTypes: [string, string][] = [

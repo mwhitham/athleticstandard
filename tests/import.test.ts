@@ -57,7 +57,7 @@ function seriesOf(file: AthleticStandardFileT, quantity: string) {
  * Unit conversions are asserted against these rather than against a summary in the
  * document, because this is where the converted number really lands.
  */
-function samplesOf(dir: string, quantity: string, source = "apple-1"): number[] {
+function samplesOf(dir: string, quantity: string, source = "apple-watch-1"): number[] {
   const athleteFile = join(dir, "athlete.ath.json");
   return seriesDayFiles(athleteFile, quantity, source).flatMap(
     ({ day }) => readSeriesDay(athleteFile, quantity, source, day)?.map((s) => s.value) ?? [],
@@ -66,6 +66,17 @@ function samplesOf(dir: string, quantity: string, source = "apple-1"): number[] 
 
 function meanOf(values: number[]): number {
   return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+/**
+ * The source id for a writer that arrived by a given route. Ids are handed out in
+ * import order, so WHOOP's copy inside an Apple export can be `whoop-1` and WHOOP's
+ * own CSV `whoop-2`; the source record, not the id, says which is which.
+ */
+function sourceByRoute(file: AthleticStandardFileT, writer: string, via: string): string {
+  const found = file.sources.find((s) => s.writer === writer && s.via === via);
+  if (!found) throw new Error(`no source for ${writer} via ${via}`);
+  return found.id;
 }
 
 function vendorScoresOf(file: AthleticStandardFileT, metric: string) {
@@ -115,7 +126,7 @@ describe("ath import — Apple Health", () => {
   it("computes RMSSD from the beat list and marks it derived (D26)", () => {
     // Scoped to the watch's optical sensor: the ECG produces its own, under its own
     // source, and the two must never be counted together.
-    const rmssd = pointsOf(file, "hrv_rmssd").filter((s) => s.source === "apple-1");
+    const rmssd = pointsOf(file, "hrv_rmssd").filter((s) => s.source === "apple-watch-1");
     // One window had 65 usable beats; the other had 4 and must produce nothing.
     expect(rmssd).toHaveLength(1);
     const derived = (rmssd[0] as { derived?: Record<string, unknown> }).derived;
@@ -141,8 +152,8 @@ describe("ath import — Apple Health", () => {
     const beats = seriesOf(file, "hrv_beats");
     expect(beats).toHaveLength(1);
     expect(beats[0]!.n).toBe(69);
-    expect(seriesDayFiles(join(dir, "athlete.ath.json"), "hrv_beats", "apple-1")).toEqual([
-      { day: "2026-08-09", file: "series/2026-08-09-hrv_beats-apple-1.ath.series.json" },
+    expect(seriesDayFiles(join(dir, "athlete.ath.json"), "hrv_beats", "apple-watch-1")).toEqual([
+      { day: "2026-08-09", file: "series/2026-08-09-hrv_beats-apple-watch-1.ath.series.json" },
     ]);
 
     // The samples are on disk, not inline.
@@ -150,10 +161,23 @@ describe("ath import — Apple Health", () => {
     expect(raw).not.toContain("offsets_ms");
   });
 
-  it("clusters overlapping sleep stage records into one night", () => {
-    const sleep = file.hard_signals.filter((s) => s.type === "sleep_session");
-    expect(sleep).toHaveLength(1);
-    const night = sleep[0] as { start: string; end: string; aggregates: Record<string, number> };
+  it("clusters overlapping sleep stage records into one night, per writer", () => {
+    // The watch and the ring both recorded this night. Two observations, two records:
+    // folding their stages together would produce a night nobody measured (D45).
+    const sleep = file.hard_signals.filter(
+      (s): s is Extract<typeof s, { type: "sleep_session" }> => s.type === "sleep_session",
+    );
+    expect(sleep.map((s) => s.source).sort()).toEqual(["apple-watch-1", "oura-1"]);
+
+    const ring = sleep.find((s) => s.source === "oura-1")!;
+    expect(ring.start).toBe("2026-08-08T22:20:00-07:00");
+    expect(ring.aggregates.duration_s).toBe(26400);
+
+    const night = sleep.find((s) => s.source === "apple-watch-1") as {
+      start: string;
+      end: string;
+      aggregates: Record<string, number>;
+    };
     expect(night.start).toBe("2026-08-08T22:15:00-07:00");
     expect(night.end).toBe("2026-08-09T06:05:00-07:00");
     // Core 2h + deep 1h15 + REM 1h30 + core 2h30 = 7h15 = 26100s asleep.
@@ -180,7 +204,7 @@ describe("ath import — Apple Health", () => {
     // line, and the detail below it has one line per quantity — so the summary is
     // bounded by how many things are measured, not by how long the history is.
     expect(output).toMatch(/wrote \d+ series files to series\/$/m);
-    expect(output).toMatch(/hrv_beats \(apple-1\): 69 samples across 1 day/);
+    expect(output).toMatch(/hrv_beats \(apple-watch-1\): 69 samples across 1 day/);
 
     const coverageLines = output
       .split("\n")
@@ -208,10 +232,11 @@ describe("ath import — Apple Health", () => {
     expect(samplesOf(dir, "physical_effort")).toEqual([9.4]);
     expect(samplesOf(dir, "basal_energy")).toEqual([72.4]);
     expect(samplesOf(dir, "exercise_time")).toEqual([1]);
-    expect(samplesOf(dir, "walking_speed")).toEqual([1.42]);
+    // Gait comes from the phone in the pocket, not the watch, and is filed that way.
+    expect(samplesOf(dir, "walking_speed", "iphone-1")).toEqual([1.42]);
     // 78 cm becomes 0.78 m.
-    expect(samplesOf(dir, "walking_step_length")).toEqual([0.78]);
-    expect(samplesOf(dir, "walking_asymmetry_percentage")).toEqual([1.4]);
+    expect(samplesOf(dir, "walking_step_length", "iphone-1")).toEqual([0.78]);
+    expect(samplesOf(dir, "walking_asymmetry_percentage", "iphone-1")).toEqual([1.4]);
     expect(samplesOf(dir, "time_in_daylight")).toEqual([46]);
   });
 
@@ -248,25 +273,33 @@ describe("ath import — Apple Health", () => {
     // 29% error, so a shared baseline would bury the comparison.
     const ecgSource = file.sources.find((s) => s.sensor === "ecg");
     expect(ecgSource).toBeDefined();
-    expect(ecgSource!.id).toBe("apple-ecg-1");
+    expect(ecgSource!.id).toBe("apple-watch-ecg-1");
     expect(ecgSource!.vendor).toBe("apple");
 
     const rmssd = pointsOf(file, "hrv_rmssd");
     const bySource = new Map(rmssd.map((s) => [s.source, s]));
-    expect(bySource.has("apple-1")).toBe(true);
-    expect(bySource.has("apple-ecg-1")).toBe(true);
+    expect(bySource.has("apple-watch-1")).toBe(true);
+    expect(bySource.has("apple-watch-ecg-1")).toBe(true);
   });
 
-  it("names the second source, so a wearer learns it exists", () => {
+  it("names every source it wrote under, with what wrote it", () => {
     // An import that quietly creates a source leaves readings the wearer cannot
-    // find, under a name nothing told them about.
-    expect(output).toContain("also under source 'apple-ecg-1' (Apple Health ECG recordings)");
-    expect(output).toMatch(/ecg_beats \(apple-ecg-1\): \d+ samples/);
+    // find, under a name nothing told them about. One export carries a watch, a
+    // phone, a scale, a cuff, a ring, a strap, the ECG sensor, and a person typing.
+    expect(output).toContain("  apple-watch-1 (Apple Watch):");
+    expect(output).toContain("  apple-watch-ecg-1 (Apple Watch, ecg):");
+    expect(output).toContain("  withings-1 (Withings):");
+    expect(output).toContain("  omron-1 (Omron):");
+    expect(output).toContain("  oura-1 (Oura):");
+    expect(output).toContain("  whoop-1 (WHOOP):");
+    expect(output).toContain("  manual-1 (typed in by hand):");
+    expect(output).toMatch(/ecg_beats \(apple-watch-ecg-1\): \d+ samples/);
+    expect(output).toMatch(/steps \(iphone-1\): \d+ samples/);
   });
 
   it("derives RMSSD from the ECG waveform with its receipts", () => {
     // The fixture alternates 880/920 ms, a true RMSSD of 40 ms.
-    const fromEcg = pointsOf(file, "hrv_rmssd").find((s) => s.source === "apple-ecg-1")!;
+    const fromEcg = pointsOf(file, "hrv_rmssd").find((s) => s.source === "apple-watch-ecg-1")!;
     expect(fromEcg.value).toBeGreaterThan(36);
     expect(fromEcg.value).toBeLessThan(44);
 
@@ -286,9 +319,9 @@ describe("ath import — Apple Health", () => {
   it("stores ECG intervals apart from optically detected beats", () => {
     const ecgBeats = seriesOf(file, "ecg_beats");
     expect(ecgBeats).toHaveLength(1);
-    expect(ecgBeats[0]!.source).toBe("apple-ecg-1");
+    expect(ecgBeats[0]!.source).toBe("apple-watch-ecg-1");
     // Mean interval of an 880/920 alternation is 900 ms.
-    const intervals = samplesOf(dir, "ecg_beats", "apple-ecg-1");
+    const intervals = samplesOf(dir, "ecg_beats", "apple-watch-ecg-1");
     expect(meanOf(intervals)).toBeGreaterThan(880);
     expect(meanOf(intervals)).toBeLessThan(920);
   });
@@ -355,11 +388,9 @@ describe("samples and summaries of one measurement (D43)", () => {
     // Apple samples respiratory rate through the night; WHOOP reports one figure for
     // it. Same measurement, same unit, different things — so one is a series and the
     // other a reading, and neither is converted into the other.
-    expect(seriesOf(file, "respiratory_rate").map((s) => s.source)).toEqual(["apple-1"]);
-    expect(pointsOf(file, "respiratory_rate").map((s) => s.source)).toEqual([
-      "whoop-1",
-      "whoop-1",
-    ]);
+    const whoopCsv = sourceByRoute(file, "WHOOP", "whoop_csv");
+    expect(seriesOf(file, "respiratory_rate").map((s) => s.source)).toEqual(["apple-watch-1"]);
+    expect(pointsOf(file, "respiratory_rate").map((s) => s.source)).toEqual([whoopCsv, whoopCsv]);
     expect(seriesOf(file, "respiratory_rate")[0]!.unit).toBe("brpm");
     expect(pointsOf(file, "respiratory_rate")[0]!.unit).toBe("brpm");
   });
@@ -367,18 +398,20 @@ describe("samples and summaries of one measurement (D43)", () => {
   it("moves the readings without changing any of them", () => {
     // The export's own values, timestamps and unit, read back out of the sidecar.
     const athleteFile = join(dir, "athlete.ath.json");
-    const samples = seriesDayFiles(athleteFile, "hrv_sdnn", "apple-1").flatMap(
-      ({ day }) => readSeriesDay(athleteFile, "hrv_sdnn", "apple-1", day) ?? [],
+    const samples = seriesDayFiles(athleteFile, "hrv_sdnn", "apple-watch-1").flatMap(
+      ({ day }) => readSeriesDay(athleteFile, "hrv_sdnn", "apple-watch-1", day) ?? [],
     );
-    expect(samples).toEqual([
+    expect(samples.map(({ at, value }) => ({ at, value }))).toEqual([
       { at: "2026-08-09T06:12:00-07:00", value: 52.3 },
       { at: "2026-08-09T22:30:00-07:00", value: 41.8 },
     ]);
+    // An SDNN figure describes a window, and the window's length comes with it (D45).
+    expect(samples.map((s) => s.durationMs)).toEqual([61_000, 6_000]);
 
     const ref = seriesOf(file, "hrv_sdnn")[0]!;
     expect(ref.n).toBe(2);
     expect(ref.unit).toBe("ms");
-    expect(ref.source).toBe("apple-1");
+    expect(ref.source).toBe("apple-watch-1");
   });
 
   it("answers the same question the same way, wherever the readings are", () => {
@@ -386,30 +419,32 @@ describe("samples and summaries of one measurement (D43)", () => {
     // neither does the answer: the same readings inline and in sidecars produce the
     // same baseline.
     const athleteFile = join(dir, "athlete.ath.json");
-    const fromSidecars = baselineFor(file, athleteFile, "hrv_sdnn", "apple-1")!;
+    const fromSidecars = baselineFor(file, athleteFile, "hrv_sdnn", "apple-watch-1")!;
     expect(fromSidecars.n).toBe(2);
     expect(fromSidecars.mean).toBe(47.1);
 
     const inline: AthleticStandardFileT = {
       ...file,
       hard_signals: [
-        { type: "hrv_sdnn", value: 52.3, unit: "ms", recorded_at: "2026-08-09T06:12:00-07:00", source: "apple-1" },
-        { type: "hrv_sdnn", value: 41.8, unit: "ms", recorded_at: "2026-08-09T22:30:00-07:00", source: "apple-1" },
+        { type: "hrv_sdnn", value: 52.3, unit: "ms", recorded_at: "2026-08-09T06:12:00-07:00", source: "apple-watch-1" },
+        { type: "hrv_sdnn", value: 41.8, unit: "ms", recorded_at: "2026-08-09T22:30:00-07:00", source: "apple-watch-1" },
       ],
     };
-    expect(baselineFor(inline, "/nonexistent/athlete.ath.json", "hrv_sdnn", "apple-1")).toEqual(
+    expect(baselineFor(inline, "/nonexistent/athlete.ath.json", "hrv_sdnn", "apple-watch-1")).toEqual(
       fromSidecars,
     );
   });
 
   it("reads both storage locations through one call", () => {
     const athleteFile = join(dir, "athlete.ath.json");
-    expect(readingsFor(file, athleteFile, "hrv_sdnn", "apple-1").map((r) => r.storage)).toEqual([
+    expect(readingsFor(file, athleteFile, "hrv_sdnn", "apple-watch-1").map((r) => r.storage)).toEqual([
       "series",
       "series",
     ]);
     expect(
-      readingsFor(file, athleteFile, "respiratory_rate", "whoop-1").map((r) => r.storage),
+      readingsFor(file, athleteFile, "respiratory_rate", sourceByRoute(file, "WHOOP", "whoop_csv")).map(
+        (r) => r.storage,
+      ),
     ).toEqual(["document", "document"]);
   });
 
@@ -419,13 +454,19 @@ describe("samples and summaries of one measurement (D43)", () => {
     const stale = newAthlete();
     const athleteFile = join(stale, "athlete.ath.json");
     const before = JSON.parse(readFileSync(athleteFile, "utf8")) as AthleticStandardFileT;
-    before.sources.push({ id: "apple-1", kind: "export_file", vendor: "apple" });
+    before.sources.push({
+      id: "apple-watch-1",
+      kind: "export_file",
+      vendor: "apple",
+      writer: "Apple Watch",
+      via: "apple_health",
+    });
     before.hard_signals.push({
       type: "hrv_sdnn",
       value: 52.3,
       unit: "ms",
       recorded_at: "2026-08-09T06:12:00-07:00",
-      source: "apple-1",
+      source: "apple-watch-1",
     });
     writeFileSync(athleteFile, JSON.stringify(before, null, 2));
 
@@ -434,6 +475,218 @@ describe("samples and summaries of one measurement (D43)", () => {
     expect(res.stdout).toContain("moved 1 reading(s) out of the document");
     expect(pointsOf(read(stale), "hrv_sdnn")).toHaveLength(0);
     expect(samplesOf(stale, "hrv_sdnn")).toEqual([52.3, 41.8]);
+  });
+});
+
+describe("ath import — one export, many writers (D45)", () => {
+  const WATCH_DEVICE =
+    'device="&lt;&lt;HKDevice: 0x2809b6800&gt;, name:Apple Watch, manufacturer:Apple Inc., model:Watch, hardware:Watch6,2, software:10.2&gt;"';
+  const NEW_WATCH_DEVICE =
+    'device="&lt;&lt;HKDevice: 0x1f0033a00&gt;, name:Apple Watch, manufacturer:Apple Inc., model:Watch, hardware:Watch7,1, software:11.0&gt;"';
+
+  /** A minimal export.xml with the records given, and nothing else. */
+  function exportOf(records: string): string {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<HealthData locale="en_US">
+ <ExportDate value="2026-08-10 09:00:00 -0700"/>
+${records}
+</HealthData>
+`;
+  }
+
+  function importXml(text: string, into?: string) {
+    const dir = into ?? newAthlete();
+    const exportPath = join(dir, "export.xml");
+    writeFileSync(exportPath, text);
+    const res = ath(["import", exportPath], dir);
+    return { dir, res, file: read(dir) };
+  }
+
+  const hr = (writer: string, at: string, bpm: number, extra = "") =>
+    `<Record type="HKQuantityTypeIdentifierHeartRate" sourceName="${writer}" ${extra} unit="count/min" startDate="${at}" endDate="${at}" value="${bpm}"/>`;
+  const energy = (writer: string, start: string, end: string, kcal: number) =>
+    `<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" sourceName="${writer}" unit="kcal" startDate="${start}" endDate="${end}" value="${kcal}"/>`;
+  const workout = (writer: string, start: string, end: string) =>
+    `<Workout workoutActivityType="HKWorkoutActivityTypeRunning" duration="30" durationUnit="min" totalEnergyBurned="300" totalEnergyBurnedUnit="kcal" sourceName="${writer}" startDate="${start}" endDate="${end}"/>`;
+
+  it("keeps two writers' samples of one quantity in the same window apart, and both totals intact", () => {
+    // The case that started this: a watch and a ring both logging calories during
+    // one run. Two files, two totals, and adding them together is not a workout total.
+    const { dir, res, file } = importXml(
+      exportOf(
+        [
+          energy("Apple Watch", "2026-08-29 13:40:14 -0500", "2026-08-29 13:40:17 -0500", 0.5),
+          energy("Apple Watch", "2026-08-29 13:40:17 -0500", "2026-08-29 13:40:20 -0500", 0.6),
+          energy("Apple Watch", "2026-08-29 13:40:20 -0500", "2026-08-29 13:40:23 -0500", 0.4),
+          energy("Oura", "2026-08-29 13:40:00 -0500", "2026-08-29 13:41:00 -0500", 9.7),
+          energy("Oura", "2026-08-29 13:41:00 -0500", "2026-08-29 13:42:00 -0500", 10.2),
+        ].join("\n"),
+      ),
+    );
+    expect(res.code).toBe(0);
+
+    const sum = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) * 100) / 100;
+    expect(sum(samplesOf(dir, "active_energy", "apple-watch-1"))).toBe(1.5);
+    expect(sum(samplesOf(dir, "active_energy", "oura-1"))).toBe(19.9);
+    expect(seriesOf(file, "active_energy").map((s) => [s.source, s.n]).sort()).toEqual([
+      ["apple-watch-1", 3],
+      ["oura-1", 2],
+    ]);
+    expect(seriesDayFiles(join(dir, "athlete.ath.json"), "active_energy", "apple-watch-1")).toHaveLength(1);
+    expect(seriesDayFiles(join(dir, "athlete.ath.json"), "active_energy", "oura-1")).toHaveLength(1);
+  });
+
+  it("keeps two writers' readings that share a timestamp and a value", () => {
+    // Agreement is data. Two devices saying 62 at 08:00 is two observations, and
+    // dropping one because it matched would erase exactly the comparison D31 protects.
+    const { dir } = importXml(
+      exportOf(
+        [
+          hr("Apple Watch", "2026-08-09 08:00:00 -0700", 62),
+          hr("WHOOP", "2026-08-09 08:00:00 -0700", 62),
+        ].join("\n"),
+      ),
+    );
+    expect(samplesOf(dir, "heart_rate", "apple-watch-1")).toEqual([62]);
+    expect(samplesOf(dir, "heart_rate", "whoop-1")).toEqual([62]);
+  });
+
+  it("keeps two writers' workouts and nights of sleep as separate records", () => {
+    const sleep = (writer: string, start: string, end: string, value: string) =>
+      `<Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="${writer}" startDate="${start}" endDate="${end}" value="${value}"/>`;
+    const { file } = importXml(
+      exportOf(
+        [
+          workout("Apple Watch", "2026-08-09 18:00:00 -0700", "2026-08-09 18:30:00 -0700"),
+          workout("WHOOP", "2026-08-09 18:00:30 -0700", "2026-08-09 18:29:00 -0700"),
+          sleep("Apple Watch", "2026-08-08 22:30:00 -0700", "2026-08-09 06:00:00 -0700", "HKCategoryValueSleepAnalysisAsleepCore"),
+          sleep("Oura", "2026-08-08 22:34:00 -0700", "2026-08-09 05:58:00 -0700", "HKCategoryValueSleepAnalysisAsleepUnspecified"),
+        ].join("\n"),
+      ),
+    );
+    const workouts = file.hard_signals.filter((s) => s.type === "workout_session");
+    const nights = file.hard_signals.filter((s) => s.type === "sleep_session");
+    expect(workouts.map((s) => s.source).sort()).toEqual(["apple-watch-1", "whoop-1"]);
+    expect(nights.map((s) => s.source).sort()).toEqual(["apple-watch-1", "oura-1"]);
+  });
+
+  it("imports a record with no device attribute and records no device for it", () => {
+    const { file } = importXml(exportOf(hr("WHOOP", "2026-08-09 08:00:00 -0700", 58)));
+    const whoop = file.sources.find((s) => s.id === "whoop-1")!;
+    expect(whoop.writer).toBe("WHOOP");
+    expect(whoop.devices).toBeUndefined();
+  });
+
+  it("does not split a watch across a software update or a missing device attribute", () => {
+    const { file } = importXml(
+      exportOf(
+        [
+          hr("Apple Watch", "2026-08-09 08:00:00 -0700", 60, `sourceVersion="10.2" ${WATCH_DEVICE}`),
+          hr("Apple Watch", "2026-08-09 08:05:00 -0700", 61, `sourceVersion="10.6" ${WATCH_DEVICE.replace("software:10.2", "software:10.6")}`),
+          hr("Apple Watch", "2026-08-09 08:10:00 -0700", 62, `sourceVersion="10.6"`),
+        ].join("\n"),
+      ),
+    );
+    const watches = file.sources.filter((s) => s.writer === "Apple Watch");
+    expect(watches).toHaveLength(1);
+    expect(watches[0]!.devices).toHaveLength(1);
+    expect(seriesOf(file, "heart_rate")[0]!.n).toBe(3);
+  });
+
+  it("keeps a replaced watch under the same name as one source, and lists both devices", () => {
+    const { file } = importXml(
+      exportOf(
+        [
+          hr("Apple Watch", "2026-08-09 08:00:00 -0700", 60, WATCH_DEVICE),
+          hr("Apple Watch", "2026-08-10 08:00:00 -0700", 61, NEW_WATCH_DEVICE),
+        ].join("\n"),
+      ),
+    );
+    const watch = file.sources.find((s) => s.id === "apple-watch-1")!;
+    expect(file.sources.filter((s) => s.writer === "Apple Watch")).toHaveLength(1);
+    expect(watch.devices!.map((d) => d.hardware)).toEqual(["Watch6,2", "Watch7,1"]);
+  });
+
+  it("drops the person's name from the id but keeps the writer as written", () => {
+    const { file } = importXml(exportOf(hr("Alex's Apple Watch", "2026-08-09 08:00:00 -0700", 60)));
+    const watch = file.sources.find((s) => s.writer === "Alex's Apple Watch")!;
+    expect(watch.id).toBe("apple-watch-1");
+  });
+
+  it("files hand-typed readings under the manual source, not under a device", () => {
+    const { file } = importXml(
+      exportOf(
+        `<Record type="HKQuantityTypeIdentifierBodyMass" sourceName="Health" unit="kg" startDate="2026-08-09 07:00:00 -0700" endDate="2026-08-09 07:00:00 -0700" value="82.3"/>`,
+      ),
+    );
+    const weight = pointsOf(file, "body_weight")[0]!;
+    expect(weight.source).toBe("manual-1");
+    expect(file.sources.find((s) => s.id === "manual-1")!.kind).toBe("manual");
+    expect(file.sources.some((s) => s.writer === "Health")).toBe(false);
+  });
+
+  it("adds nothing on a repeat import, and does not merge across writers to get there", () => {
+    const xml = exportOf(
+      [
+        hr("Apple Watch", "2026-08-09 08:00:00 -0700", 62),
+        hr("WHOOP", "2026-08-09 08:00:00 -0700", 62),
+        workout("Apple Watch", "2026-08-09 18:00:00 -0700", "2026-08-09 18:30:00 -0700"),
+      ].join("\n"),
+    );
+    const first = importXml(xml);
+    const again = importXml(xml, first.dir);
+    expect(again.res.code).toBe(0);
+    // Sidecars are rewritten with the same bytes; the document gains no reading.
+    expect(again.res.stdout).not.toMatch(/^ {4}\w+: \d+$/m);
+    expect(again.res.stdout).toContain("skipped 1 already-present record");
+    expect(again.file.sources).toHaveLength(first.file.sources.length);
+    expect(again.file.hard_signals).toHaveLength(first.file.hard_signals.length);
+    expect(samplesOf(first.dir, "heart_rate", "apple-watch-1")).toEqual([62]);
+    expect(samplesOf(first.dir, "heart_rate", "whoop-1")).toEqual([62]);
+  });
+
+  it("keeps how long a span sample covered, and adds nothing to an instant reading", () => {
+    const { dir, res } = importXml(
+      exportOf(
+        [
+          `<Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-08-09 09:00:00 -0700" endDate="2026-08-09 09:05:00 -0700" value="420"/>`,
+          hr("Apple Watch", "2026-08-09 08:00:00 -0700", 62),
+        ].join("\n"),
+      ),
+    );
+    expect(res.code).toBe(0);
+    const athleteFile = join(dir, "athlete.ath.json");
+
+    const steps = readSeriesDay(athleteFile, "steps", "iphone-1", "2026-08-09")!;
+    expect(steps).toEqual([{ at: "2026-08-09T09:00:00-07:00", value: 420, durationMs: 300_000 }]);
+    const stepsRaw = readFileSync(join(dir, seriesDayFiles(athleteFile, "steps", "iphone-1")[0]!.file), "utf8");
+    expect(JSON.parse(stepsRaw).durations_ms).toEqual([300_000]);
+
+    const pulse = readFileSync(join(dir, seriesDayFiles(athleteFile, "heart_rate", "apple-watch-1")[0]!.file), "utf8");
+    expect(JSON.parse(pulse)).not.toHaveProperty("durations_ms");
+
+    // A person reading the rows sees the span; a program gets the milliseconds.
+    expect(ath(["series", "steps", "--raw"], dir).stdout).toContain("420  over 5m");
+    expect(JSON.parse(ath(["series", "steps", "--raw", "--json"], dir).stdout)[0].samples[0].durationMs).toBe(
+      300_000,
+    );
+  });
+
+  it("refuses a file written in the old one-source-per-export layout, and says what to do", () => {
+    // Such a file cannot be repaired: nothing in it says which reading came from
+    // which device. Importing on top of it would leave the pooled history beside the
+    // separated one, counted twice.
+    const dir = newAthlete();
+    const athleteFile = join(dir, "athlete.ath.json");
+    const old = JSON.parse(readFileSync(athleteFile, "utf8")) as AthleticStandardFileT;
+    old.sources.push({ id: "apple-1", kind: "export_file", vendor: "apple", detail: "Apple Health via zip export" });
+    writeFileSync(athleteFile, JSON.stringify(old, null, 2));
+
+    const res = ath(["import", join(EXPORTS, "apple/export.xml")], dir);
+    expect(res.code).not.toBe(0);
+    expect(res.stdout).toContain("apple-1");
+    expect(res.stdout).toContain("ath init");
+    expect(read(dir)).toEqual(old);
   });
 });
 
@@ -692,32 +945,70 @@ describe("ath import — multiple devices", () => {
     file = read(dir);
   });
 
-  it("registers one source per device, and one more for the ECG sensor", () => {
-    expect(file.sources.map((s) => s.id)).toEqual([
-      "manual-1",
-      "apple-1",
-      "apple-ecg-1",
-      "whoop-1",
-      "oura-1",
-    ]);
+  it("registers one source per writer and route, and one more for the ECG sensor", () => {
+    // The Apple export alone carries seven writers. WHOOP and Oura then arrive a
+    // second time by their own exports, and each route is its own source (D45).
+    const byId = new Map(file.sources.map((s) => [s.id, s]));
+    expect([...byId.keys()].sort()).toEqual(
+      [
+        "manual-1",
+        "apple-watch-1",
+        "apple-watch-ecg-1",
+        "iphone-1",
+        "withings-1",
+        "omron-1",
+        "oura-1",
+        "oura-2",
+        "whoop-1",
+        "whoop-2",
+      ].sort(),
+    );
+    expect(byId.get("whoop-1")).toMatchObject({ writer: "WHOOP", via: "apple_health", vendor: "whoop" });
+    expect(byId.get("whoop-2")).toMatchObject({ writer: "WHOOP", via: "whoop_csv", vendor: "whoop" });
+    expect(byId.get("oura-1")).toMatchObject({ writer: "Oura", via: "apple_health" });
+    expect(byId.get("oura-2")).toMatchObject({ writer: "Oura", via: "oura_csv" });
+    expect(byId.get("iphone-1")).toMatchObject({ writer: "iPhone", vendor: "apple" });
+    expect(byId.get("manual-1")!.kind).toBe("manual");
   });
 
-  it("keeps three devices' readings of the same night as three records (D31)", () => {
+  it("records the watch's device once, across a software update and a missing attribute", () => {
+    // Three of the watch's records: one with the device at software 10.2, one with the
+    // same hardware at 10.6 and a different memory address, one with no device at all.
+    // One source, one device, no version and no address.
+    const watch = file.sources.find((s) => s.id === "apple-watch-1")!;
+    expect(watch.devices).toEqual([
+      { name: "Apple Watch", manufacturer: "Apple Inc.", model: "Watch", hardware: "Watch6,2" },
+    ]);
+    expect(JSON.stringify(watch)).not.toContain("0x28");
+    expect(JSON.stringify(watch)).not.toContain("10.2");
+  });
+
+  it("keeps every device's reading of the same morning as its own record (D31)", () => {
     const morning = pointsOf(file, "resting_heart_rate").filter((s) =>
       s.recorded_at.startsWith("2026-08-09"),
     );
-    expect(morning).toHaveLength(3);
+    // Watch, WHOOP relayed through Health, WHOOP's own CSV, Oura's own CSV.
+    expect(morning).toHaveLength(4);
     expect(new Set(morning.map((s) => s.source))).toEqual(
-      new Set(["apple-1", "whoop-1", "oura-1"]),
+      new Set(["apple-watch-1", "whoop-1", "whoop-2", "oura-2"]),
     );
   });
 
   it("shows each device its own baseline rather than one pooled number", () => {
     const stats = ath(["stats"], dir).stdout;
     expect(stats).toContain("never pooled across devices");
-    expect(stats).toMatch(/whoop-1 hrv_rmssd:/);
-    expect(stats).toMatch(/oura-1 hrv_rmssd:/);
-    expect(stats).toMatch(/apple-1 hrv_rmssd:/);
+    expect(stats).toMatch(/whoop-2 hrv_rmssd:/);
+    expect(stats).toMatch(/oura-2 hrv_rmssd:/);
+    expect(stats).toMatch(/apple-watch-1 hrv_rmssd:/);
+  });
+
+  it("lists every source with what wrote it, so an agent can tell them apart", () => {
+    const stats = ath(["stats"], dir).stdout;
+    expect(stats).toMatch(/^sources: 10$/m);
+    expect(stats).toContain("apple-watch-1: Apple Watch, via apple_health [Apple Watch Watch6,2]");
+    expect(stats).toContain("whoop-1: WHOOP, via apple_health");
+    expect(stats).toContain("whoop-2: WHOOP, via whoop_csv");
+    expect(stats).toContain("manual-1: typed in by hand");
   });
 
   it("lists vendor scores apart from measurements", () => {
@@ -798,7 +1089,7 @@ describe("ath import — failure modes", () => {
 
     const target = join(
       dir,
-      seriesDayFiles(join(dir, "athlete.ath.json"), "heart_rate", "apple-1")[0]!.file,
+      seriesDayFiles(join(dir, "athlete.ath.json"), "heart_rate", "apple-watch-1")[0]!.file,
     );
     const tampered = JSON.parse(readFileSync(target, "utf8"));
     tampered.values[0] = 999;
@@ -806,7 +1097,7 @@ describe("ath import — failure modes", () => {
 
     const res = ath(["check"], dir);
     expect(res.code).toBe(1);
-    expect(res.stdout).toContain("heart_rate for apple-1 doesn't match what was recorded");
+    expect(res.stdout).toContain("heart_rate for apple-watch-1 doesn't match what was recorded");
   });
 
   it("fails when a day's sidecar is deleted while the folder remains (D40)", () => {
@@ -814,7 +1105,7 @@ describe("ath import — failure modes", () => {
     const dir = newAthlete();
     ath(["import", join(EXPORTS, "apple/export.xml")], dir);
     rmSync(
-      join(dir, seriesDayFiles(join(dir, "athlete.ath.json"), "heart_rate", "apple-1")[0]!.file),
+      join(dir, seriesDayFiles(join(dir, "athlete.ath.json"), "heart_rate", "apple-watch-1")[0]!.file),
     );
 
     const res = ath(["check"], dir);
