@@ -327,6 +327,69 @@ describe("ath import — Apple Health", () => {
   });
 });
 
+describe("ath import — Apple writes beat clocks in the phone's own locale", () => {
+  const fixture = readFileSync(join(EXPORTS, "apple/export.xml"), "utf8");
+
+  /** The same instants, written the way another phone's settings would write them. */
+  function inLocale(text: string, style: "24h" | "12h" | "comma" | "korean"): string {
+    return text.replace(/time="(\d{1,2}):(\d{2}):(\d{2})\.(\d+)"/g, (_all, h, mi, s, frac) => {
+      const hour = Number(h);
+      const twelve = hour % 12 === 0 ? 12 : hour % 12;
+      switch (style) {
+        case "24h":
+          return `time="${String(hour).padStart(2, "0")}:${mi}:${s}.${frac}"`;
+        case "12h":
+          return `time="${twelve}:${mi}:${s}.${frac} ${hour < 12 ? "AM" : "PM"}"`;
+        case "comma":
+          return `time="${h}:${mi}:${s},${frac}"`;
+        case "korean":
+          return `time="${hour < 12 ? "오전" : "오후"} ${twelve}:${mi}:${s}.${frac}"`;
+      }
+    });
+  }
+
+  /** Import an export whose beat clocks were rewritten, and report what survived. */
+  function importWithClocks(text: string) {
+    const dir = newAthlete();
+    const exportPath = join(dir, "export.xml");
+    writeFileSync(exportPath, text);
+    const res = ath(["import", exportPath], dir);
+    expect(res.code).toBe(0);
+    const file = read(dir);
+    return {
+      output: res.stdout,
+      beats: samplesOf(dir, "hrv_beats"),
+      rmssd: pointsOf(file, "hrv_rmssd").map((s) => s.value),
+    };
+  }
+
+  it("reads every locale's clock as the same beats", () => {
+    // Apple writes this timestamp using the settings of the phone the export came
+    // from, so one watch produces four spellings of one instant. A US phone on a
+    // 12-hour clock is the common case, and it used to lose every beat in the file.
+    const reference = importWithClocks(inLocale(fixture, "24h"));
+    expect(reference.beats).toHaveLength(69);
+    expect(reference.rmssd).toHaveLength(1);
+
+    for (const style of ["12h", "comma", "korean"] as const) {
+      const got = importWithClocks(inLocale(fixture, style));
+      expect(got.beats, style).toEqual(reference.beats);
+      expect(got.rmssd, style).toEqual(reference.rmssd);
+      expect(got.output, style).not.toContain("heartbeat readings");
+    }
+  });
+
+  it("counts beats it cannot place instead of dropping them in silence", () => {
+    // The failure that hid itself: unreadable beats left the window empty, an empty
+    // window was discarded, and the report said nothing at all.
+    const got = importWithClocks(fixture.replace(/time="[^"]*"/g, 'time="quarter past six"'));
+    expect(got.beats).toHaveLength(0);
+    expect(got.rmssd).toHaveLength(0);
+    expect(got.output).toContain("heartbeat readings we could not place");
+    expect(got.output).toContain("quarter past six");
+  });
+});
+
 describe("ath import — WHOOP", () => {
   let dir: string;
   let file: AthleticStandardFileT;

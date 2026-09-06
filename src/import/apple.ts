@@ -166,29 +166,64 @@ interface SleepFragment {
 
 interface BeatWindow {
   recordedAt: string;
+  endsAt: string | null;
   beats: Beat[];
 }
 
-/**
- * Beat entries carry a time of day (`6:12:46.87`) with no date, so it is read as an
- * offset from the record's own start time. A window crossing midnight wraps, which
- * is handled by adding a day when the clock appears to go backwards.
- */
-function beatOffsetMs(recordedAt: string, timeOfDay: string): number | null {
-  const m = /^(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/.exec(timeOfDay.trim());
+const DAY_MS = 86_400_000;
+
+/** How far outside its stated window a beat may fall and still be believed. */
+const BEAT_WINDOW_TOLERANCE_MS = 10 * 60 * 1000;
+
+/** Time of day of an offset timestamp, in milliseconds since local midnight. */
+function clockMs(timestamp: string): number | null {
+  const m = /T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?/.exec(timestamp);
   if (!m) return null;
   const [, h, mi, s, frac = "0"] = m;
-  const beatMs =
-    (Number(h) * 3600 + Number(mi) * 60 + Number(s)) * 1000 + Number(frac.padEnd(3, "0"));
+  return (Number(h) * 3600 + Number(mi) * 60 + Number(s)) * 1000 + Number(frac.padEnd(3, "0"));
+}
 
-  const startClock = /T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?/.exec(recordedAt);
-  if (!startClock) return null;
-  const [, sh, smi, ss, sfrac = "0"] = startClock;
-  const startMs =
-    (Number(sh) * 3600 + Number(smi) * 60 + Number(ss)) * 1000 + Number(sfrac.padEnd(3, "0"));
+/**
+ * Where a beat falls inside its record's window, in milliseconds from the start.
+ *
+ * Beat entries carry a time of day with no date, and Apple writes that clock in the
+ * settings of the phone the export came from. One watch produces `13:40:45.22`,
+ * `1:40:45.22 PM`, `13:40:45,22`, or `오후 1:40:45.22` depending on where it was set
+ * up. So only the digits are read, and any marker around them is ignored: there is
+ * no need to know which language wrote "PM" when the record states its own start and
+ * end about a minute apart, and only one reading of a 12-hour clock can land inside
+ * that window. A window crossing midnight wraps.
+ */
+export function beatOffsetMs(
+  recordedAt: string,
+  endsAt: string | null,
+  timeOfDay: string,
+): number | null {
+  const m = /(\d{1,2}):(\d{2}):(\d{2})(?:[.,](\d{1,3}))?/.exec(timeOfDay);
+  if (!m) return null;
+  const [, h, mi, s, frac = "0"] = m;
+  const withinHour = Number(mi) * 60_000 + Number(s) * 1000 + Number(frac.padEnd(3, "0"));
 
-  const offset = beatMs - startMs;
-  return offset < 0 ? offset + 86_400_000 : offset;
+  const startMs = clockMs(recordedAt);
+  if (startMs === null) return null;
+  const endMs = endsAt === null ? null : clockMs(endsAt);
+  const durationMs = endMs === null ? 0 : (endMs - startMs + DAY_MS) % DAY_MS;
+
+  // A 12-hour clock does not say whether 6:12 is morning or evening, and writes both
+  // noon and midnight as 12. Every reading the digits allow is tried against the
+  // window, which is what decides.
+  const hour = Number(h);
+  const candidates = hour === 12 ? [12, 0] : hour < 12 ? [hour, hour + 12] : [hour];
+
+  let best: number | null = null;
+  for (const candidate of candidates) {
+    let offset = candidate * 3_600_000 + withinHour - startMs;
+    if (offset < -BEAT_WINDOW_TOLERANCE_MS) offset += DAY_MS;
+    if (offset < -BEAT_WINDOW_TOLERANCE_MS) continue;
+    if (offset > durationMs + BEAT_WINDOW_TOLERANCE_MS) continue;
+    if (best === null || Math.abs(offset) < Math.abs(best)) best = offset;
+  }
+  return best;
 }
 
 interface AppleAccumulator {
@@ -327,9 +362,30 @@ function parseAppleXml(
         case "InstantaneousBeatsPerMinute": {
           if (!currentBeatWindow) break;
           const bpm = Number(attrs.bpm);
-          if (!Number.isFinite(bpm) || bpm <= 0) break;
-          const offsetMs = beatOffsetMs(currentBeatWindow.recordedAt, attrs.time ?? "");
-          if (offsetMs === null) break;
+          if (!Number.isFinite(bpm) || bpm <= 0) {
+            countSkipWithExample(
+              payload,
+              "heartbeat readings with an unusable rate",
+              `bpm "${attrs.bpm ?? "(none)"}"`,
+            );
+            break;
+          }
+          const offsetMs = beatOffsetMs(
+            currentBeatWindow.recordedAt,
+            currentBeatWindow.endsAt,
+            attrs.time ?? "",
+          );
+          if (offsetMs === null) {
+            // Counted, because a beat dropped in silence is how a locale mismatch
+            // removed every RMSSD an Apple Watch could have contributed while the
+            // import reported nothing at all.
+            countSkipWithExample(
+              payload,
+              "heartbeat readings we could not place in their reading's window",
+              `time "${attrs.time ?? "(none)"}" in a window starting ${currentBeatWindow.recordedAt}`,
+            );
+            break;
+          }
           // The rate a beat reports is the interval that produced it: 70 bpm is a
           // gap of 60000/70 ms.
           currentBeatWindow.beats.push({ offsetMs, intervalMs: 60000 / bpm });
@@ -461,9 +517,10 @@ function parseAppleXml(
           source: sourceId,
         } as HardSignalT);
 
-        // An SDNN record may carry the beats it was computed from.
+        // An SDNN record may carry the beats it was computed from. Its end time comes
+        // along because the window is what places each beat's clock.
         if (point.type === "hrv_sdnn") {
-          currentBeatWindow = { recordedAt: startDate, beats: [] };
+          currentBeatWindow = { recordedAt: startDate, endsAt: endDate, beats: [] };
         }
         return;
       }
