@@ -285,3 +285,28 @@ Rejected alternatives:
 - **Ignore the timestamps and accumulate each beat's reported rate instead.** This is what the original code did, and D35 rejected it: without timestamps a missed beat is invisible, and every gap reads as variability.
 
 **A reading we cannot place is counted and quoted.** This is the more important half. Beats that failed to parse were dropped individually, which left the window empty, and an empty window was discarded without a word — so the import reported a clean run while removing the most valuable signal in the export. Nothing about the numbers on screen could have revealed it. D34 already required that a skipped row be counted with an example; the rule now applies below the level of a row, to anything inside one.
+
+## D43. Storage follows how often a device measures, not which device it is
+
+A real import left 52,709 readings in the document and 9.1 MB, measured. Three quarters of it was respiratory rate, SDNN, and blood oxygen from one Apple Watch: 45,035 readings. D25 already said dense streams belong in sidecars. These three had stayed inline because they were classified as point measurements before anyone had looked at how often Apple writes them.
+
+**The rule is about cadence, not vendor.** An Apple Watch samples all three repeatedly through a night. WHOOP and Oura report one figure per night for each. Those are different measurements — a stream of readings and a figure summarizing a night — so they get different record shapes:
+
+- **In the document:** individual observations, and figures summarizing a night or a session.
+- **In sidecars:** dense sample series, with a coverage record naming the quantity so a reader can find them.
+
+`hrv_sdnn`, `respiratory_rate`, and `oxygen_saturation` are therefore both point types and series quantities. One measurement name living in two places is the honest description, because the underlying measurements really are two different things. An importer decides which it is writing from the shape of the export it is reading, at parse time, so the answer is fixed and does not drift between imports.
+
+**One interface reads either.** `readingsFor()` returns a measurement's readings whether the device wrote them inline or into sidecars, each one saying where it was found, so no caller needs a branch per location. `baselineFor()` uses it, and `ath context` will. The window is bounded before any file is opened, so a 90-day baseline reads 90 days of sidecars rather than the eleven years on disk.
+
+**Nothing is reduced on the way out.** Every sample keeps its own timestamp, value, unit, and source. No nightly average is stored in place of the samples it came from, because that would be irreversible and would throw away the overnight shape that made the samples worth keeping.
+
+Measured on a 50,000-record Apple export: the document falls from 9.1 MB to 1.45 MB, `ath stats` from 0.42 s to 0.36 s, and the baselines it prints are unchanged — the same readings, now fetched from disk. A test asserts that equality directly, comparing a baseline computed from sidecars against the same readings inline.
+
+Rejected alternatives:
+
+- **Decide per vendor.** Apple happens to produce the dense samples today. Writing "Apple's three types are series" into the format would make a vendor's current behaviour into a rule, and it would answer nothing about the next vendor.
+- **Measure cadence at runtime and route above a threshold.** A source writing 1.4 readings a day this year and 0.9 next year would move its own history between imports. The same export must always land the same way.
+- **Keep only the last 90 days inline and sidecar the rest.** Smaller again — about 400 KB — and rejected: a reading aging past 90 days should not change where it is found. A rolling window is a useful thing for a generated context view to apply, not a layout for the file.
+- **Store a nightly average inline and the samples in sidecars.** Rejected: an average is not a measurement the device made, and having one inline invites a reader to use it as though it were.
+- **Leave it at 9.1 MB.** Defensible on operations alone, since nothing was slow. Rejected because the format already had the rule and was not following it. The gain is consistency; a 1.45 MB document is still not something to read in full, which is what `ath context` is for.

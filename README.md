@@ -104,6 +104,8 @@ Two things it won't do with those. It doesn't keep the ECG trace itself or what 
 
 Your file keeps a one-line summary of each measurement — what it covers and how many samples — rather than a line per day. With eleven years of step counts that's the difference between a readable file and a ten-megabyte one.
 
+**Where a measurement lands depends on how often your device takes it.** An Apple Watch checks your breathing rate, HRV and blood oxygen many times a night, so those go to the folder. WHOOP and Oura report one figure per night for the same three, and one figure per night stays in the file. Both are the same measurement and you ask for them the same way; a night of readings and a single figure summarising that night are just not the same thing, so they aren't stored as though they were.
+
 Keep the folder with the file. If it goes missing, `ath check` says so and your file still works.
 
 ## Reading the detailed data

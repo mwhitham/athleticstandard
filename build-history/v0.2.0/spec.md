@@ -216,6 +216,8 @@ Remaining guard rails: intervals outside 300–2000 ms dropped as implausible an
 
 Sessions: `SleepAnalysis` records cluster into `sleep_session` — `InBed`, `AsleepCore`, `AsleepDeep`, `AsleepREM`, `Awake`, and the older undifferentiated `Asleep`. A gap of a few hours starts a new night. `Workout` becomes `workout_session`, with `WorkoutEvent` laps as `segments` and distance, energy, and average and maximum heart rate on the aggregates.
 
+Series to sidecars, per D43: `hrv_sdnn`, `respiratory_rate`, and `oxygen_saturation`, which Apple samples repeatedly rather than reporting once per night. The same three stay point measurements when WHOOP or Oura reports one figure for a night, and both are reached through `readingsFor()`.
+
 Series to sidecars, per D32: the three distance quantities; `heart_rate`, `steps`, `active_energy`, `basal_energy`, `exercise_time`, `physical_effort`, `flights_climbed`; the five running quantities (`running_speed`, `running_power`, `running_stride_length`, `running_vertical_oscillation`, `running_ground_contact_time`); the three gait quantities (`walking_speed`, `walking_step_length`, `walking_asymmetry_percentage`); and `time_in_daylight`.
 
 Units are converted explicitly and an unrecognized unit is a counted skip naming the identifier and the unit seen, never a value assumed to be canonical (D33).

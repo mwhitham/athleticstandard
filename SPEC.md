@@ -80,14 +80,14 @@ A single timestamped reading.
 | `type` | Canonical unit | Notes |
 |---|---|---|
 | `hrv_rmssd` | `ms` | |
-| `hrv_sdnn` | `ms` | a different statistic from RMSSD; never share a baseline |
+| `hrv_sdnn` | `ms` | a different statistic from RMSSD; never share a baseline. Also a series quantity |
 | `resting_heart_rate` | `bpm` | |
 | `walking_heart_rate` | `bpm` | a walking average, not a resting value |
 | `hr_recovery` | `bpm` | one-minute drop after effort |
 | `body_weight` | `kg` | |
-| `respiratory_rate` | `brpm` | |
+| `respiratory_rate` | `brpm` | also a series quantity |
 | `vo2_max` | `ml/kg/min` | |
-| `oxygen_saturation` | `%` | |
+| `oxygen_saturation` | `%` | also a series quantity |
 | `body_temperature` | `°C` | an actual body temperature |
 | `skin_temperature` | `°C` | measured at the skin |
 | `wrist_temperature_sleeping` | `°C` | overnight wrist measurement |
@@ -101,6 +101,8 @@ A single timestamped reading.
 Blood pressure is here because it is a cardiovascular measurement that bears on the load a session imposes, and it is standard in athlete screening. Diagnostic findings are a different thing and stay out of the format: atrial fibrillation burden, low-heart-rate events, and walking steadiness are conclusions about disease, and this format is not medical advice.
 
 The `unit` field is mandatory and must equal the canonical unit — it is redundant on purpose, so a record read in isolation is never ambiguous.
+
+**Why three types appear here and in the series table.** How often a device measures something decides where it is stored, and devices differ. An Apple Watch samples SDNN, respiratory rate, and blood oxygen repeatedly through a night; WHOOP and Oura report one figure per night for each. A stream of readings and a figure summarizing a night are different measurements, so they get different record shapes: samples go to a sidecar, a night's figure stays here as a reading. Nothing is averaged to fit — a sidecar holds every sample the device recorded, with its own timestamp. Ask for either through `readingsFor()`, which returns both and says which it found.
 
 **Why four temperature types.** They are not interchangeable. Core temperature falls during sleep because the extremities warm and shed heat, so wrist temperature runs roughly an hour ahead of core and inverted, with a daily swing of about 6 °C. A wrist reading is a circadian marker, not a thermometer for the body. Averaging these together would cancel out the signal. `temperature_deviation` is a fourth thing again: a difference from a personal baseline, meaningless if read as a temperature.
 
@@ -160,6 +162,9 @@ Individual days are not listed because they do not need to be: a sidecar's name 
 | `heart_rate` | `bpm` | |
 | `hrv_beats` | `ms` | beat-to-beat intervals, timed optically |
 | `ecg_beats` | `ms` | beat-to-beat intervals, timed from an ECG waveform |
+| `hrv_sdnn` | `ms` | also a point type: a device that samples it writes a series, one reporting a nightly figure writes a reading |
+| `respiratory_rate` | `brpm` | also a point type, for the same reason |
+| `oxygen_saturation` | `%` | also a point type, for the same reason |
 | `steps` | `count` | |
 | `active_energy` | `kcal` | |
 | `basal_energy` | `kcal` | resting energy; modelled by the device, not measured |
@@ -427,11 +432,9 @@ Point measurements:
 
 | HealthKit identifier | Athletic Standard |
 |---|---|
-| `HeartRateVariabilitySDNN` | `hrv_sdnn` |
 | `RestingHeartRate` | `resting_heart_rate` |
 | `WalkingHeartRateAverage` | `walking_heart_rate` |
 | `HeartRateRecoveryOneMinute` | `hr_recovery` |
-| `RespiratoryRate` | `respiratory_rate` |
 | `BodyMass` | `body_weight` |
 | `LeanBodyMass` | `lean_body_mass` |
 | `BodyFatPercentage` | `body_fat_percentage` |
@@ -439,7 +442,6 @@ Point measurements:
 | `VO2Max` | `vo2_max` |
 | `AppleSleepingWristTemperature` | `wrist_temperature_sleeping` |
 | `BodyTemperature` | `body_temperature` |
-| `OxygenSaturation` | `oxygen_saturation` |
 | `BloodPressureSystolic` / `BloodPressureDiastolic` | the two blood pressure types |
 
 Sessions: `SleepAnalysis` records cluster into `sleep_session`; `Workout` plus its `WorkoutEvent` laps becomes `workout_session` with `segments`.
@@ -449,6 +451,9 @@ Series:
 | HealthKit identifier | Series quantity |
 |---|---|
 | `HeartRate` | `heart_rate` |
+| `HeartRateVariabilitySDNN` | `hrv_sdnn` — Apple samples it, so it is a series here |
+| `RespiratoryRate` | `respiratory_rate` — the same |
+| `OxygenSaturation` | `oxygen_saturation` — the same |
 | `StepCount` | `steps` |
 | `ActiveEnergyBurned` | `active_energy` |
 | `BasalEnergyBurned` | `basal_energy` |
