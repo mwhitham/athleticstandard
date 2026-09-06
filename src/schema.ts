@@ -278,6 +278,16 @@ export const SERIES_QUANTITY_UNITS = {
   // standard. Named apart from hrv_beats because optical and electrical beat
   // detection are different measurements with very different accuracy.
   ecg_beats: "ms",
+
+  // Also point-measurement types, and deliberately so (D43). These three are
+  // sampled repeatedly through a night by some devices and reported once per night
+  // by others, and those are different measurements: a stream of readings and a
+  // figure summarizing a night cannot share a record shape. Samples land here with
+  // every original timestamp; a night's single figure stays a point measurement.
+  hrv_sdnn: "ms",
+  respiratory_rate: "brpm",
+  oxygen_saturation: "%",
+
   steps: "count",
   active_energy: "kcal",
   distance_walking_running: "m",

@@ -5,7 +5,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { AthleticStandardFileT } from "../src/schema.js";
+import { readingsFor } from "../src/readings.js";
 import { readSeriesDay, seriesDayFiles } from "../src/series.js";
+import { baselineFor } from "../src/stats.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(here, "../src/cli.ts");
@@ -37,7 +39,8 @@ function read(dir: string): AthleticStandardFileT {
 
 function pointsOf(file: AthleticStandardFileT, type: string) {
   return file.hard_signals.filter(
-    (s): s is Extract<typeof s, { value: number }> => s.type === type && "value" in s,
+    (s): s is Extract<typeof s, { value: number; unit: string }> =>
+      s.type === type && "value" in s && "unit" in s,
   );
 }
 
@@ -91,7 +94,7 @@ describe("ath import — Apple Health", () => {
   });
 
   it("converts Apple's saturation fraction to a percentage", () => {
-    expect(pointsOf(file, "oxygen_saturation")[0]!.value).toBe(97);
+    expect(samplesOf(dir, "oxygen_saturation")).toEqual([97]);
   });
 
   it("keeps wrist temperature apart from body temperature (D28)", () => {
@@ -101,9 +104,12 @@ describe("ath import — Apple Health", () => {
   });
 
   it("stores Apple HRV as SDNN and never as RMSSD (D22)", () => {
-    const sdnn = pointsOf(file, "hrv_sdnn");
-    expect(sdnn.map((s) => s.value)).toEqual([52.3, 41.8]);
-    expect(sdnn.every((s) => !("derived" in s && s.derived))).toBe(true);
+    // Apple samples SDNN through the night rather than reporting one figure for it,
+    // so the readings live in a sidecar (D43). Still SDNN, still never pooled with
+    // RMSSD, and still nothing this tool computed.
+    expect(samplesOf(dir, "hrv_sdnn")).toEqual([52.3, 41.8]);
+    expect(pointsOf(file, "hrv_sdnn")).toHaveLength(0);
+    expect(seriesOf(file, "hrv_sdnn")[0]!.unit).toBe("ms");
   });
 
   it("computes RMSSD from the beat list and marks it derived (D26)", () => {
@@ -331,6 +337,103 @@ describe("ath import — Apple Health", () => {
 
   it("leaves a file that passes check", () => {
     expect(ath(["check"], dir).code).toBe(0);
+  });
+});
+
+describe("samples and summaries of one measurement (D43)", () => {
+  let dir: string;
+  let file: AthleticStandardFileT;
+
+  beforeAll(() => {
+    dir = newAthlete();
+    expect(ath(["import", join(EXPORTS, "apple/export.xml")], dir).code).toBe(0);
+    expect(ath(["import", join(EXPORTS, "whoop")], dir).code).toBe(0);
+    file = read(dir);
+  });
+
+  it("keeps a sampled measurement and a nightly one apart, under one name", () => {
+    // Apple samples respiratory rate through the night; WHOOP reports one figure for
+    // it. Same measurement, same unit, different things — so one is a series and the
+    // other a reading, and neither is converted into the other.
+    expect(seriesOf(file, "respiratory_rate").map((s) => s.source)).toEqual(["apple-1"]);
+    expect(pointsOf(file, "respiratory_rate").map((s) => s.source)).toEqual([
+      "whoop-1",
+      "whoop-1",
+    ]);
+    expect(seriesOf(file, "respiratory_rate")[0]!.unit).toBe("brpm");
+    expect(pointsOf(file, "respiratory_rate")[0]!.unit).toBe("brpm");
+  });
+
+  it("moves the readings without changing any of them", () => {
+    // The export's own values, timestamps and unit, read back out of the sidecar.
+    const athleteFile = join(dir, "athlete.ath.json");
+    const samples = seriesDayFiles(athleteFile, "hrv_sdnn", "apple-1").flatMap(
+      ({ day }) => readSeriesDay(athleteFile, "hrv_sdnn", "apple-1", day) ?? [],
+    );
+    expect(samples).toEqual([
+      { at: "2026-08-09T06:12:00-07:00", value: 52.3 },
+      { at: "2026-08-09T22:30:00-07:00", value: 41.8 },
+    ]);
+
+    const ref = seriesOf(file, "hrv_sdnn")[0]!;
+    expect(ref.n).toBe(2);
+    expect(ref.unit).toBe("ms");
+    expect(ref.source).toBe("apple-1");
+  });
+
+  it("answers the same question the same way, wherever the readings are", () => {
+    // The interface a caller uses does not depend on where a reading was stored, and
+    // neither does the answer: the same readings inline and in sidecars produce the
+    // same baseline.
+    const athleteFile = join(dir, "athlete.ath.json");
+    const fromSidecars = baselineFor(file, athleteFile, "hrv_sdnn", "apple-1")!;
+    expect(fromSidecars.n).toBe(2);
+    expect(fromSidecars.mean).toBe(47.1);
+
+    const inline: AthleticStandardFileT = {
+      ...file,
+      hard_signals: [
+        { type: "hrv_sdnn", value: 52.3, unit: "ms", recorded_at: "2026-08-09T06:12:00-07:00", source: "apple-1" },
+        { type: "hrv_sdnn", value: 41.8, unit: "ms", recorded_at: "2026-08-09T22:30:00-07:00", source: "apple-1" },
+      ],
+    };
+    expect(baselineFor(inline, "/nonexistent/athlete.ath.json", "hrv_sdnn", "apple-1")).toEqual(
+      fromSidecars,
+    );
+  });
+
+  it("reads both storage locations through one call", () => {
+    const athleteFile = join(dir, "athlete.ath.json");
+    expect(readingsFor(file, athleteFile, "hrv_sdnn", "apple-1").map((r) => r.storage)).toEqual([
+      "series",
+      "series",
+    ]);
+    expect(
+      readingsFor(file, athleteFile, "respiratory_rate", "whoop-1").map((r) => r.storage),
+    ).toEqual(["document", "document"]);
+  });
+
+  it("drops inline readings that a later import stores as a series", () => {
+    // A file written before the measurement moved still holds the old inline copies.
+    // Keeping both would count every reading twice and leave the document its old size.
+    const stale = newAthlete();
+    const athleteFile = join(stale, "athlete.ath.json");
+    const before = JSON.parse(readFileSync(athleteFile, "utf8")) as AthleticStandardFileT;
+    before.sources.push({ id: "apple-1", kind: "export_file", vendor: "apple" });
+    before.hard_signals.push({
+      type: "hrv_sdnn",
+      value: 52.3,
+      unit: "ms",
+      recorded_at: "2026-08-09T06:12:00-07:00",
+      source: "apple-1",
+    });
+    writeFileSync(athleteFile, JSON.stringify(before, null, 2));
+
+    const res = ath(["import", join(EXPORTS, "apple/export.xml")], stale);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("moved 1 reading(s) out of the document");
+    expect(pointsOf(read(stale), "hrv_sdnn")).toHaveLength(0);
+    expect(samplesOf(stale, "hrv_sdnn")).toEqual([52.3, 41.8]);
   });
 });
 

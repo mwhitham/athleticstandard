@@ -231,6 +231,27 @@ export function checkSeriesRef(athleteFilePath: string, ref: SeriesRefT): Series
 }
 
 /**
+ * Write an instant using the UTC offset of a reference timestamp.
+ *
+ * A sample read back out of a sidecar should read as it was written. Rendering it in
+ * UTC names the same instant but moves a late-evening reading onto the next calendar
+ * day, which is confusing to anyone reading the day's file. Milliseconds appear only
+ * when there are some, since beat intervals need them and a nightly reading does not.
+ */
+export function atOffsetOf(reference: string, instantMs: number): string {
+  const rounded = Math.round(instantMs);
+  const offset = /([+-]\d{2}:\d{2})$/.exec(reference)?.[1];
+  const iso = new Date(rounded).toISOString();
+  if (!offset) return rounded % 1000 === 0 ? `${iso.slice(0, 19)}Z` : iso;
+
+  const sign = offset.startsWith("-") ? -1 : 1;
+  const [oh, om] = offset.slice(1).split(":").map(Number);
+  const shifted = new Date(rounded + sign * ((oh! * 60 + om!) * 60_000)).toISOString();
+  const clock = rounded % 1000 === 0 ? shifted.slice(0, 19) : shifted.slice(0, 23);
+  return `${clock}${offset}`;
+}
+
+/**
  * Samples for one day, resolved back to absolute instants.
  * Returns null when that day has no sidecar.
  */
@@ -249,7 +270,7 @@ export function readSeriesDay(
   const parsed = SeriesFile.parse(JSON.parse(readFileSync(target, "utf8")));
   const startMs = Date.parse(parsed.start);
   return parsed.offsets_ms.map((offset, i) => ({
-    at: new Date(startMs + offset).toISOString(),
+    at: atOffsetOf(parsed.start, startMs + offset),
     value: parsed.values[i]!,
   }));
 }

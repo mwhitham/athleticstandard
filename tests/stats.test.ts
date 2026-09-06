@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { ATHLETIC_STANDARD_VERSION, type AthleticStandardFileT } from "../src/schema.js";
 import { baselineFor } from "../src/stats.js";
 
+/** No sidecars in these cases, so the path only has to be somewhere. */
+const NO_SIDECARS = "/nonexistent/athlete.ath.json";
+
 function fileWithHrv(points: { recorded_at: string; value: number }[]): AthleticStandardFileT {
   return {
     athleticstandard_version: ATHLETIC_STANDARD_VERSION,
@@ -28,7 +31,7 @@ describe("baselineFor", () => {
       { recorded_at: "2026-08-31T01:00:00Z", value: 50 },
       { recorded_at: "2026-08-30T20:00:00-07:00", value: 70 },
     ]);
-    const b = baselineFor(file, "hrv_rmssd", "whoop-1");
+    const b = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1");
     expect(b).not.toBeNull();
     expect(b!.to).toBe("2026-08-30");
     expect(b!.mean).toBe(60);
@@ -40,7 +43,7 @@ describe("baselineFor", () => {
       { recorded_at: "2026-08-01T06:00:00Z", value: 40 },
       { recorded_at: "2026-08-10T06:00:00Z", value: 60 },
     ]);
-    const b = baselineFor(file, "hrv_rmssd", "whoop-1");
+    const b = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1");
     expect(b).not.toBeNull();
     expect(b!.from).toBe("2026-08-01");
     expect(b!.to).toBe("2026-08-20");
@@ -54,7 +57,7 @@ describe("baselineFor", () => {
       { recorded_at: "2026-08-01T00:00:00Z", value: 50 },
       { recorded_at: "2026-08-30T00:00:00Z", value: 70 },
     ]);
-    const b = baselineFor(file, "hrv_rmssd", "whoop-1", 90);
+    const b = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1", 90);
     expect(b).not.toBeNull();
     expect(b!.n).toBe(2);
     expect(b!.mean).toBe(60);
@@ -75,8 +78,8 @@ describe("baselineFor", () => {
       { type: "hrv_rmssd", value: 90, unit: "ms", recorded_at: "2026-08-02T06:00:00Z", source: "oura-1" },
     );
 
-    const whoop = baselineFor(file, "hrv_rmssd", "whoop-1");
-    const oura = baselineFor(file, "hrv_rmssd", "oura-1");
+    const whoop = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1");
+    const oura = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "oura-1");
     expect(whoop!.mean).toBe(60);
     expect(whoop!.n).toBe(2);
     expect(oura!.mean).toBe(90);
@@ -85,6 +88,6 @@ describe("baselineFor", () => {
 
   it("returns null for a source that never measured this type", () => {
     const file = fileWithHrv([{ recorded_at: "2026-08-01T06:00:00Z", value: 60 }]);
-    expect(baselineFor(file, "hrv_rmssd", "oura-1")).toBeNull();
+    expect(baselineFor(file, NO_SIDECARS, "hrv_rmssd", "oura-1")).toBeNull();
   });
 });

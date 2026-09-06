@@ -38,6 +38,8 @@ export interface MergeSummary {
   duplicates: number;
   softAdded: number;
   softDuplicates: number;
+  /** Inline readings dropped because the same measurement is now a series. */
+  movedToSeries: number;
   /** The day sidecars this run wrote. */
   seriesWritten: BuiltSeries[];
   /** The coverage records now in the document, spanning every day on disk. */
@@ -176,6 +178,16 @@ export function mergePayload(
   );
   for (const ref of groupRefs) file.hard_signals.push(ref);
 
+  // A measurement stored as a series keeps no copy inline (D43). Files written before
+  // a measurement moved still hold the old inline readings, and leaving them would
+  // count every reading twice and keep the document at its old size. The samples
+  // themselves are in the sidecars, so nothing is lost — only the duplicate.
+  const before = file.hard_signals.length;
+  file.hard_signals = file.hard_signals.filter(
+    (sig) => !("recorded_at" in sig) || !replaced.has(`${sig.type}|${sig.source}`),
+  );
+  const movedToSeries = before - file.hard_signals.length;
+
   for (const sig of payload.hardSignals) {
     const key = hardKey(sig);
     if (existingKeys.has(key)) {
@@ -216,6 +228,7 @@ export function mergePayload(
     sourceId,
     added,
     sourceDetails,
+    movedToSeries,
     duplicates,
     softAdded,
     softDuplicates,
@@ -279,6 +292,13 @@ export function renderMergeSummary(summary: MergeSummary, label: string): string
           `${ref.days} day${ref.days === 1 ? "" : "s"} (${span})`,
       );
     }
+  }
+
+  if (summary.movedToSeries > 0) {
+    lines.push(
+      `  moved ${summary.movedToSeries} reading(s) out of the document — ` +
+        `this measurement is now stored as a series`,
+    );
   }
 
   if (summary.duplicates > 0 || summary.softDuplicates > 0) {

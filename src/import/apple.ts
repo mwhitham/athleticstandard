@@ -54,11 +54,9 @@ interface PointMapping {
 }
 
 const POINT_MAPPINGS: Record<string, PointMapping> = {
-  HeartRateVariabilitySDNN: { type: "hrv_sdnn", convert: toMilliseconds },
   RestingHeartRate: { type: "resting_heart_rate", convert: perMinute },
   WalkingHeartRateAverage: { type: "walking_heart_rate", convert: perMinute },
   HeartRateRecoveryOneMinute: { type: "hr_recovery", convert: perMinute },
-  RespiratoryRate: { type: "respiratory_rate", convert: perMinute },
   BodyMass: { type: "body_weight", convert: toKilograms },
   LeanBodyMass: { type: "lean_body_mass", convert: toKilograms },
   BodyFatPercentage: { type: "body_fat_percentage", convert: toPercent },
@@ -66,13 +64,20 @@ const POINT_MAPPINGS: Record<string, PointMapping> = {
   VO2Max: { type: "vo2_max", convert: passthrough },
   AppleSleepingWristTemperature: { type: "wrist_temperature_sleeping", convert: toCelsius },
   BodyTemperature: { type: "body_temperature", convert: toCelsius },
-  OxygenSaturation: { type: "oxygen_saturation", convert: toPercent },
   BloodPressureSystolic: { type: "blood_pressure_systolic", convert: toMillimetresMercury },
   BloodPressureDiastolic: { type: "blood_pressure_diastolic", convert: toMillimetresMercury },
 };
 
 const SERIES_MAPPINGS: Record<string, SeriesMapping> = {
   HeartRate: { quantity: "heart_rate", convert: perMinute },
+
+  // Apple samples these three repeatedly rather than reporting one figure per night,
+  // so here they are streams and belong in sidecars (D43). WHOOP and Oura report one
+  // figure per night for the same measurements, and those stay point measurements.
+  HeartRateVariabilitySDNN: { quantity: "hrv_sdnn", convert: toMilliseconds },
+  RespiratoryRate: { quantity: "respiratory_rate", convert: perMinute },
+  OxygenSaturation: { quantity: "oxygen_saturation", convert: toPercent },
+
   StepCount: { quantity: "steps", convert: toCount },
   ActiveEnergyBurned: { quantity: "active_energy", convert: toKilocalories },
   BasalEnergyBurned: { quantity: "basal_energy", convert: toKilocalories },
@@ -516,12 +521,6 @@ function parseAppleXml(
           recorded_at: startDate,
           source: sourceId,
         } as HardSignalT);
-
-        // An SDNN record may carry the beats it was computed from. Its end time comes
-        // along because the window is what places each beat's clock.
-        if (point.type === "hrv_sdnn") {
-          currentBeatWindow = { recordedAt: startDate, endsAt: endDate, beats: [] };
-        }
         return;
       }
 
@@ -551,6 +550,12 @@ function parseAppleXml(
         samples.push({ at: startDate, value: round(value) });
         byDay.set(day, samples);
         acc.series.set(series.quantity, byDay);
+
+        // An SDNN record may carry the beats it was computed from. Its end time comes
+        // along because the window is what places each beat's clock.
+        if (series.quantity === "hrv_sdnn") {
+          currentBeatWindow = { recordedAt: startDate, endsAt: endDate, beats: [] };
+        }
         return;
       }
 

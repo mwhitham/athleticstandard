@@ -224,7 +224,7 @@ program
   .argument("[file]", "path to the file (default: the one in this directory)")
   .action((fileArg) => {
     const path = findOrFail(fileArg);
-    console.log(renderStats(loadFile(path)));
+    console.log(renderStats(loadFile(path), path));
   });
 
 /**

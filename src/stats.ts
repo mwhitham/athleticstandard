@@ -3,6 +3,7 @@
  * counts, date ranges, and current baselines with receipts (n, window, spread).
  */
 import type { AthleticStandardFileT } from "./schema.js";
+import { latestReadingDay, readingsFor } from "./readings.js";
 
 export interface Baseline {
   mean: number;
@@ -26,42 +27,58 @@ const day = (ts: string) => ts.slice(0, 10);
 /** Instant in milliseconds. Offset timestamps cannot be ordered as strings. */
 const instant = (ts: string): number => Date.parse(ts);
 
+/** Calendar day `days` before `d`. */
+function dayBefore(d: string, days: number): string {
+  return new Date(Date.parse(`${d}T00:00:00Z`) - days * 86400_000).toISOString().slice(0, 10);
+}
+
 /**
- * Mean/sd of a point-measurement type over the trailing `windowDays` of data.
+ * Mean/sd of a measurement over the trailing `windowDays` of data.
  *
  * `source` is required, because baselines are never pooled across devices (D31).
  * Two devices disagree by more than the day-to-day change a prediction reads:
  * against an ECG reference, nocturnal HRV error runs about 6% on an Oura Gen 4
  * and about 29% on an Apple Watch. Mixing them describes neither device.
+ *
+ * Readings are fetched through one interface whether the device wrote a nightly
+ * figure into the document or a night of samples into a sidecar (D43). The window is
+ * bounded before anything is opened, so a 90-day baseline reads 90 days of files and
+ * not eleven years of them.
  */
 export function baselineFor(
   file: AthleticStandardFileT,
+  athleteFilePath: string,
   type: string,
   source: string,
   windowDays = 90,
 ): Baseline | null {
-  const points = file.hard_signals.filter(
-    (s): s is Extract<typeof s, { recorded_at: string; value: number }> =>
-      "value" in s && s.type === type && s.source === source,
-  );
-  if (points.length === 0) return null;
-  const dated = points.map((p) => ({ point: p, t: instant(p.recorded_at) }));
-  const latest = dated.reduce((a, b) => (a.t >= b.t ? a : b));
-  const cutoff = latest.t - windowDays * 86400_000;
-  const windowed = dated.filter((p) => p.t >= cutoff);
-  const earliest = windowed.reduce((a, b) => (a.t <= b.t ? a : b));
-  const values = windowed.map((p) => p.point.value);
+  const latestDay = latestReadingDay(file, athleteFilePath, type, source);
+  if (latestDay === null) return null;
+
+  // A day wider than the window at each end, because a day is not an instant: the
+  // exact cutoff is applied below, once the readings carry their own timestamps.
+  const readings = readingsFor(file, athleteFilePath, type, source, {
+    from: dayBefore(latestDay, windowDays + 1),
+    to: latestDay,
+  });
+  if (readings.length === 0) return null;
+
+  const latest = readings.reduce((a, b) => (instant(a.at) >= instant(b.at) ? a : b));
+  const cutoff = instant(latest.at) - windowDays * 86400_000;
+  const windowed = readings.filter((r) => instant(r.at) >= cutoff);
+  const earliest = windowed.reduce((a, b) => (instant(a.at) <= instant(b.at) ? a : b));
+  const values = windowed.map((r) => r.value);
   const m = mean(values);
   return {
     mean: Math.round(m * 10) / 10,
     sd: Math.round(sd(values, m) * 10) / 10,
     n: windowed.length,
-    from: day(earliest.point.recorded_at),
-    to: day(latest.point.recorded_at),
+    from: day(earliest.at),
+    to: day(latest.at),
   };
 }
 
-export function renderStats(file: AthleticStandardFileT): string {
+export function renderStats(file: AthleticStandardFileT, athleteFilePath: string): string {
   const lines: string[] = [];
   const name = file.athlete.name ?? "unnamed athlete";
 
@@ -108,7 +125,12 @@ export function renderStats(file: AthleticStandardFileT): string {
   ];
   const baselineRows = file.sources.flatMap((src) =>
     baselineTypes
-      .map(([type, unit]) => ({ source: src.id, type, unit, b: baselineFor(file, type, src.id) }))
+      .map(([type, unit]) => ({
+        source: src.id,
+        type,
+        unit,
+        b: baselineFor(file, athleteFilePath, type, src.id),
+      }))
       .filter((x) => x.b !== null),
   );
   if (baselineRows.length > 0) {
