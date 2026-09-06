@@ -56,11 +56,24 @@ Every hard signal references a source by id. This registry is what makes "measur
 |---|---|---|---|
 | `id` | yes | id | unique within the file, e.g. `whoop-1` |
 | `kind` | yes | `wearable` \| `export_file` \| `connector` \| `manual` | |
-| `vendor` | no | string | `whoop`, `oura`, `apple`, `garmin`, … |
+| `vendor` | no | string | `whoop`, `oura`, `apple`, `withings`, … |
+| `writer` | no | string | the app or device that wrote the readings, as the export names it: `"Apple Watch"`, `"WHOOP"`, `"Withings"` |
+| `via` | no | string | how the readings arrived: `apple_health`, `whoop_csv`, `oura_csv` |
+| `devices` | no | array | every distinct physical device seen writing under this name; see below |
 | `sensor` | no | string | which sensor within the device, when one device has several |
-| `detail` | no | string | human-readable, e.g. `"WHOOP 4.0 via CSV export 2026-08-09"` |
+| `detail` | no | string | human-readable, e.g. `"Withings via Apple Health zip export"` |
 
-**`sensor`** exists because one device can hold sensors of very different accuracy. An Apple Watch times heartbeats optically all day and electrically when the wearer takes an ECG; the electrical figure is the reference standard while the optical one carries roughly 29% error. Those get separate sources — `apple-1` and `apple-ecg-1` — so their baselines never pool, for the same reason two different devices do not pool.
+**One source per writer, not per export file.** An export file is a container. One Apple Health export carries readings from the watch, the phone, a bathroom scale, a blood-pressure cuff, and any app that writes into Health — including WHOOP and Oura. Each of those is its own source, because a baseline pooled across a watch and a scale describes neither. The importer reads the writer's name from each record and files it accordingly: `apple-watch-1`, `iphone-1`, `withings-1`, `omron-1`, `oura-1`. Readings from two writers are never merged, even when they share a timestamp and a value — two devices agreeing is two observations.
+
+**`via`** separates the same writer arriving by two routes. WHOOP's copy of its readings inside an Apple Health export is a rounded subset of WHOOP's own CSV export, so they are two sources (`via: "apple_health"` and `via: "whoop_csv"`), and a reader who wants to know how much the relay lost can compare them.
+
+**`devices`** records the physical hardware without splitting on it. Each entry may hold `name`, `manufacturer`, `model`, and `hardware` (e.g. `Watch6,2`). Software versions and memory addresses are never kept: they change without the device changing. A replaced watch that keeps its name stays one source and lists both devices here, because the alternative — one source per hardware generation — would also split a single watch whose older records lack a device attribute.
+
+**`sensor`** exists because one device can hold sensors of very different accuracy. An Apple Watch times heartbeats optically all day and electrically when the wearer takes an ECG; the electrical figure is the reference standard while the optical one carries roughly 29% error. Those get separate sources — `apple-watch-1` and `apple-watch-ecg-1` — so their baselines never pool, for the same reason two different devices do not pool.
+
+**Hand-typed readings inside an export** — a height entered in the Health app — go under the file's `manual` source, not under a device. The export names the Health app itself as the writer, and the Health app measured nothing.
+
+Ids are handed out in import order, so the id alone does not say which route a source is. The `writer` and `via` fields do.
 
 **The `manual` kind** exists so a typed-in number ("my HRV was 54 this morning") can be stored as a measurement *without claiming device provenance*. Agents should weight `manual`-sourced hard signals below device-sourced ones. Writing a typed-in number under a device source is a spec violation.
 
@@ -114,7 +127,7 @@ A point measurement may carry a `derived` block, meaning the value was computed 
 
 ```json
 { "type": "hrv_rmssd", "value": 44.2, "unit": "ms",
-  "recorded_at": "2026-08-09T06:12:00-07:00", "source": "apple-1",
+  "recorded_at": "2026-08-09T06:12:00-07:00", "source": "apple-watch-1",
   "derived": { "from": "hrv_beats", "method": "rmssd", "window_s": 61,
                "n_beats": 68, "n_dropped": 2 } }
 ```
@@ -140,7 +153,7 @@ One record describes a whole quantity, not a single day:
 
 ```json
 { "type": "series_ref", "quantity": "heart_rate", "unit": "bpm",
-  "source": "apple-1", "from": "2023-06-01", "to": "2026-08-30",
+  "source": "apple-watch-1", "from": "2023-06-01", "to": "2026-08-30",
   "days": 1120, "n": 410131, "sha256": "d7c1f30127…" }
 ```
 
@@ -196,11 +209,21 @@ A sidecar is one quantity, one day, one source:
 
 ```json
 { "athleticstandard_version": "0.2.0", "quantity": "heart_rate", "unit": "bpm",
-  "start": "2026-08-09T00:00:12-07:00", "source": "apple-1",
+  "start": "2026-08-09T00:00:12-07:00", "source": "apple-watch-1",
   "offsets_ms": [0, 300000], "values": [62, 64] }
 ```
 
 `offsets_ms` and `values` are parallel arrays of equal length, offsets measured in milliseconds from `start`. Milliseconds rather than seconds because beat intervals are about 850 ms apart, and whole seconds would collapse beats sharing a second into one instant.
+
+A sample that covers a span rather than an instant — "420 steps from 9:00 to 9:05" — keeps its length in a third parallel array, `durations_ms`. It is present only when at least one sample on that day has a span, so a day of heart-rate readings does not carry a column of zeros. Steps, energy, distance, exercise time and Apple's HRV windows have spans; heart rate, oxygen saturation and respiratory rate do not.
+
+```json
+{ "athleticstandard_version": "0.2.0", "quantity": "steps", "unit": "count",
+  "start": "2026-08-09T09:00:00-07:00", "source": "iphone-1",
+  "offsets_ms": [0, 300000], "values": [420, 388], "durations_ms": [300000, 300000] }
+```
+
+The span is kept because a total is a rate only if its length survives: 420 steps over five minutes and 420 steps over an hour are different walks. It also shows where a device stopped recording, which the start times alone cannot. Two writers of the same quantity never share a sidecar: the filename carries the source, so a watch's calories and a ring's calories for the same run are two files with two totals.
 
 #### Verifying a series
 

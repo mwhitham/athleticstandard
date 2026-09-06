@@ -92,6 +92,8 @@ That works for an Apple Health `export.zip`, a WHOOP CSV export, or an Oura expo
 
 You can import from more than one device. Readings are never mixed together: each one keeps a note of which device measured it, and the averages in `ath stats` are listed per device. That matters because devices genuinely disagree about heart rate variability — by more than the day-to-day change you'd be looking for — so a single blended number would be misleading. Resting heart rate is a different story: devices agree closely on that.
 
+This holds inside one export too. An Apple Health export carries readings from everything that writes into Health — the watch, the phone in your pocket, a smart scale, a blood-pressure cuff, and other wearables' apps. Each is filed under its own name (`apple-watch-1`, `iphone-1`, `withings-1`, and so on), and `ath stats` lists them all with what wrote them. Numbers you typed into the Health app yourself are filed as hand-entered, not as a device.
+
 **Running data comes across in detail.** If you run outdoors with a watch that records it, you get speed, power, stride length, ground contact time, and how much your body rises with each stride — not just the total distance. That's the difference between knowing a run was slow and knowing whether your form fell apart in the last mile.
 
 **Your runs get split up.** Apple saves the route of every outdoor workout, so each run is broken into per-kilometre times plus how much climbing you did. A single finishing time can't tell you the last kilometre was 40% slower than the first; splits can. The route itself is thrown away after the splits are worked out — your file never stores where you actually went, because that would be a map of your home and your regular routes.
