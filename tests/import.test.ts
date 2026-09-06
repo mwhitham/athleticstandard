@@ -489,6 +489,36 @@ describe("ath import — Apple writes beat clocks in the phone's own locale", ()
     }
   });
 
+  it("reads beats whose hour disagrees with the record's own start hour", () => {
+    // In a real export more than half the beats in the file said an hour that the
+    // record they belong to did not: the beat clock and the record's start are
+    // rendered against different UTC offsets. Shifting every hour reproduces it.
+    const reference = importWithClocks(inLocale(fixture, "24h"));
+    const shifted = fixture.replace(
+      /time="(\d{1,2}):(\d{2}):(\d{2})\.(\d+)"/g,
+      (_all, h, mi, s, frac) => `time="${(Number(h) + 23) % 24}:${mi}:${s}.${frac}"`,
+    );
+
+    const got = importWithClocks(shifted);
+    expect(got.beats).toEqual(reference.beats);
+    expect(got.rmssd).toEqual(reference.rmssd);
+    expect(got.output).not.toContain("heartbeat readings");
+  });
+
+  it("counts a beat whose minute does not fit, which no offset explains", () => {
+    const reference = importWithClocks(inLocale(fixture, "24h"));
+    const shifted = fixture.replace(
+      /time="(\d{1,2}):(\d{2}):(\d{2})\.(\d+)"/g,
+      (_all, h, mi, s, frac) => `time="${h}:${String((Number(mi) + 20) % 60).padStart(2, "0")}:${s}.${frac}"`,
+    );
+
+    const got = importWithClocks(shifted);
+    expect(got.beats).toHaveLength(0);
+    expect(got.rmssd).toHaveLength(0);
+    expect(got.output).toContain("heartbeat readings we could not place");
+    expect(reference.beats.length).toBeGreaterThan(0);
+  });
+
   it("counts beats it cannot place instead of dropping them in silence", () => {
     // The failure that hid itself: unreadable beats left the window empty, an empty
     // window was discarded, and the report said nothing at all.

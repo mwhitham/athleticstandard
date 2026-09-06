@@ -33,13 +33,29 @@ describe("beatOffsetMs", () => {
     expect(beatOffsetMs(START, END, "6:12:30,50")).toBe(30_500);
   });
 
-  it("uses the window to settle what a 12-hour clock leaves ambiguous", () => {
+  it("reads 12-hour and 24-hour spellings of the same beat the same way", () => {
     const afternoonStart = "2017-10-31T13:40:43+00:00";
     const afternoonEnd = "2017-10-31T13:41:54+00:00";
     expect(beatOffsetMs(afternoonStart, afternoonEnd, "1:40:45.22 PM")).toBe(2_220);
     expect(beatOffsetMs(afternoonStart, afternoonEnd, "13:40:45.22")).toBe(2_220);
-    // 6:12 in the morning cannot belong to an afternoon reading.
+    // A different minute belongs to a different reading.
     expect(beatOffsetMs(afternoonStart, afternoonEnd, "6:12:30.50")).toBeNull();
+  });
+
+  it("places a beat whose hour disagrees with the record's own start hour", () => {
+    // Straight from a real export: the record starts at 23:33:17 -05:00 and its first
+    // beat says 10:33:19.09 PM, an hour earlier. The two are rendered against
+    // different UTC offsets, so the hour is not evidence. The minute and second are.
+    expect(beatOffsetMs("2020-11-15T23:33:17-05:00", "2020-11-15T23:34:18-05:00", "10:33:19.09 PM")).toBe(
+      2_090,
+    );
+  });
+
+  it("reads the same beat the same way whatever hour is written on it", () => {
+    const offsets = ["06", "07", "05", "18", "00"].map((hour) =>
+      beatOffsetMs(START, END, `${hour}:12:30.50`),
+    );
+    expect(offsets).toEqual([30_500, 30_500, 30_500, 30_500, 30_500]);
   });
 
   it("handles noon and midnight, which a 12-hour clock both write as 12", () => {

@@ -310,3 +310,22 @@ Rejected alternatives:
 - **Keep only the last 90 days inline and sidecar the rest.** Smaller again — about 400 KB — and rejected: a reading aging past 90 days should not change where it is found. A rolling window is a useful thing for a generated context view to apply, not a layout for the file.
 - **Store a nightly average inline and the samples in sidecars.** Rejected: an average is not a measurement the device made, and having one inline invites a reader to use it as though it were.
 - **Leave it at 9.1 MB.** Defensible on operations alone, since nothing was slow. Rejected because the format already had the rule and was not following it. The gain is consistency; a 1.45 MB document is still not something to read in full, which is what `ath context` is for.
+
+## D44. A beat's hour is not evidence; its minute and second are
+
+D42 read a beat's clock by trying every reading the digits allowed against the record's window. It assumed the beat's hour and the hour in the record's own start time were written against the same UTC offset. In a real export they are not. A record starting `2020-11-15T23:33:17-05:00` carries its first beat at `10:33:19.09 PM`, an hour earlier — same minute, same second, wrong hour. Apple renders the record's start with the offset that was in effect when it was recorded, and the beat's clock against something else, so the two disagree by a whole number of hours across daylight-saving boundaries and moves between zones. 324,542 of 588,612 beats in one export were rejected on that basis, and only 513 of 2,290 days kept any.
+
+**The hour is now discarded before anything is compared.** Only the minute, the second and the fraction are read, and the record decides which hour they belong to: a window about a minute long has one position per hour that fits, and a whole-hour disagreement cannot move a beat into a different minute. This also removes the 12-hour problem D42 solved, rather than solving it again — there is no longer an AM or PM to resolve, and noon and midnight need no special case.
+
+Two limits follow, and both are stated rather than hidden:
+
+- **A window longer than 55 minutes cannot be placed this way** and is counted. Apple's HRV windows are about a minute, so this does not arise in practice.
+- **A zone difference that is not a whole hour shifts the minute too.** India, Nepal and Newfoundland are the cases. Those beats are counted as unplaceable rather than guessed at, which follows D33: refuse and report, do not assume.
+
+Rejected alternatives:
+
+- **Work out which offset Apple used and convert.** The export does not say, and the rule is undocumented and has changed. Any answer would be a guess about a format one vendor controls, and the record's own window already resolves the question without it.
+- **Widen the window until the beats fit.** An hour of tolerance would accept a beat from any reading in the file, which is worse than losing it. Placing a beat in the wrong window would corrupt RMSSD silently, and silence is the failure mode this version keeps finding.
+- **Trust the hour when it agrees and drop the beat when it does not.** That is what D42 does, and it is what lost more than half the beats. Agreement between the two clocks carries no information about either.
+
+What the shape of this one is worth remembering for: D42 was tested against every spelling of a clock and passed, because the tests were built from the same assumption as the parser — that the beat's hour meant what the record's hour meant. The fixture could not falsify it. The same lesson as the WHOOP timezone bug, one level down.

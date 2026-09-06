@@ -176,9 +176,13 @@ interface BeatWindow {
 }
 
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 
 /** How far outside its stated window a beat may fall and still be believed. */
-const BEAT_WINDOW_TOLERANCE_MS = 10 * 60 * 1000;
+const BEAT_WINDOW_TOLERANCE_MS = 5 * 60 * 1000;
+
+/** A window this long cannot be resolved from a minute and a second alone. */
+const LONGEST_PLACEABLE_WINDOW_MS = 55 * 60 * 1000;
 
 /** Time of day of an offset timestamp, in milliseconds since local midnight. */
 function clockMs(timestamp: string): number | null {
@@ -191,39 +195,42 @@ function clockMs(timestamp: string): number | null {
 /**
  * Where a beat falls inside its record's window, in milliseconds from the start.
  *
- * Beat entries carry a time of day with no date, and Apple writes that clock in the
- * settings of the phone the export came from. One watch produces `13:40:45.22`,
- * `1:40:45.22 PM`, `13:40:45,22`, or `오후 1:40:45.22` depending on where it was set
- * up. So only the digits are read, and any marker around them is ignored: there is
- * no need to know which language wrote "PM" when the record states its own start and
- * end about a minute apart, and only one reading of a 12-hour clock can land inside
- * that window. A window crossing midnight wraps.
+ * Beat entries carry a time of day with no date, and two things about that clock are
+ * unreliable. Apple writes it in the settings of the phone the export came from, so
+ * one watch produces `13:40:45.22`, `1:40:45.22 PM`, `13:40:45,22`, or
+ * `오후 1:40:45.22`. And the hour can disagree with the hour in the record's own
+ * start time by a whole number of hours, because the two are rendered against
+ * different UTC offsets: a record starting `2020-11-15T23:33:17-05:00` carries a
+ * first beat at `10:33:19.09 PM`.
+ *
+ * So the hour is not read at all. Only the minute and the second are, and the record
+ * decides the rest: a window about a minute long has one position per hour that fits,
+ * and a whole-hour disagreement cannot move a beat out of the minute it belongs to. A
+ * window crossing midnight wraps.
+ *
+ * A zone difference that is not a whole hour (India, Nepal, Newfoundland) shifts the
+ * minute too, and those beats are counted as unplaceable rather than guessed at.
  */
 export function beatOffsetMs(
   recordedAt: string,
   endsAt: string | null,
   timeOfDay: string,
 ): number | null {
-  const m = /(\d{1,2}):(\d{2}):(\d{2})(?:[.,](\d{1,3}))?/.exec(timeOfDay);
+  const m = /\d{1,2}:(\d{2}):(\d{2})(?:[.,](\d{1,3}))?/.exec(timeOfDay);
   if (!m) return null;
-  const [, h, mi, s, frac = "0"] = m;
-  const withinHour = Number(mi) * 60_000 + Number(s) * 1000 + Number(frac.padEnd(3, "0"));
+  const [, mi, s, frac = "0"] = m;
+  const beatWithinHour = Number(mi) * 60_000 + Number(s) * 1000 + Number(frac.padEnd(3, "0"));
 
   const startMs = clockMs(recordedAt);
   if (startMs === null) return null;
   const endMs = endsAt === null ? null : clockMs(endsAt);
   const durationMs = endMs === null ? 0 : (endMs - startMs + DAY_MS) % DAY_MS;
+  if (durationMs > LONGEST_PLACEABLE_WINDOW_MS) return null;
 
-  // A 12-hour clock does not say whether 6:12 is morning or evening, and writes both
-  // noon and midnight as 12. Every reading the digits allow is tried against the
-  // window, which is what decides.
-  const hour = Number(h);
-  const candidates = hour === 12 ? [12, 0] : hour < 12 ? [hour, hour + 12] : [hour];
+  const base = beatWithinHour - (startMs % HOUR_MS);
 
   let best: number | null = null;
-  for (const candidate of candidates) {
-    let offset = candidate * 3_600_000 + withinHour - startMs;
-    if (offset < -BEAT_WINDOW_TOLERANCE_MS) offset += DAY_MS;
+  for (const offset of [base, base + HOUR_MS, base - HOUR_MS]) {
     if (offset < -BEAT_WINDOW_TOLERANCE_MS) continue;
     if (offset > durationMs + BEAT_WINDOW_TOLERANCE_MS) continue;
     if (best === null || Math.abs(offset) < Math.abs(best)) best = offset;
