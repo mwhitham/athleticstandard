@@ -692,7 +692,7 @@ function parseAppleXml(
         const durationMs = endDate ? Date.parse(endDate) - Date.parse(startDate) : 0;
         samples.push({
           at: startDate,
-          value: round(value),
+          value: roundSample(value),
           ...(durationMs > 0 ? { durationMs } : {}),
         });
         bucket.byDay.set(day, samples);
@@ -715,6 +715,16 @@ function parseAppleXml(
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * Series samples keep three decimals, which is what Apple writes. A calorie sample
+ * every three seconds is about 0.5 kcal, and rounding each to two places drifted a
+ * run's total by half a kilocalorie over 891 samples. Rounding exists only to remove
+ * float noise from unit conversion, so it stops one place past the source's precision.
+ */
+function roundSample(n: number): number {
+  return Math.round(n * 1000) / 1000;
 }
 
 /**
