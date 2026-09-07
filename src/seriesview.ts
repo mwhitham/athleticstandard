@@ -11,6 +11,7 @@
  */
 import type { AthleticStandardFileT, SeriesRefT } from "./schema.js";
 import { readSeriesDay, seriesDayFiles, type Sample } from "./series.js";
+import { daysBetween, renderCoverage, RULES, type Coverage } from "./coverage.js";
 
 export interface DaySummary {
   day: string;
@@ -105,6 +106,35 @@ export function readRawDays(
   return days.sort((a, b) => a.day.localeCompare(b.day) || a.source.localeCompare(b.source));
 }
 
+/**
+ * What the rows returned actually cover, one record per source (D47).
+ *
+ * Per source rather than one total, because two devices measuring the same quantity
+ * are two answers and merging their coverage would describe neither (D31).
+ */
+export function coverageOfDays(quantity: string, rows: { day: string; source: string; n?: number }[]): Coverage[] {
+  const bySource = new Map<string, { day: string; n: number }[]>();
+  for (const row of rows) {
+    bySource.set(row.source, [...(bySource.get(row.source) ?? []), { day: row.day, n: row.n ?? 1 }]);
+  }
+  return [...bySource]
+    .map(([source, days]) => {
+      const sorted = days.map((d) => d.day).sort();
+      const from = sorted[0]!;
+      const to = sorted[sorted.length - 1]!;
+      return {
+        n: days.reduce((a, d) => a + d.n, 0),
+        from,
+        to,
+        days_present: new Set(sorted).size,
+        days_expected: daysBetween(from, to),
+        source,
+        rule: RULES.dailySummary(quantity),
+      };
+    })
+    .sort((a, b) => a.source.localeCompare(b.source));
+}
+
 /** Aligned columns, so a person can scan a month of rows and see the shape. */
 export function renderDaySummaries(quantity: string, unit: string, rows: DaySummary[]): string {
   if (rows.length === 0) return `no ${quantity} samples in that range`;
@@ -130,6 +160,9 @@ export function renderDaySummaries(quantity: string, unit: string, rows: DaySumm
   const total = rows.reduce((sum, r) => sum + r.n, 0);
   lines.push("");
   lines.push(`  ${total} sample${total === 1 ? "" : "s"} total`);
+  for (const c of coverageOfDays(quantity, rows)) {
+    lines.push(`  ${renderCoverage(c)}`);
+  }
   return lines.join("\n");
 }
 

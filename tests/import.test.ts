@@ -420,7 +420,7 @@ describe("samples and summaries of one measurement (D43)", () => {
     // same baseline.
     const athleteFile = join(dir, "athlete.ath.json");
     const fromSidecars = baselineFor(file, athleteFile, "hrv_sdnn", "apple-watch-1")!;
-    expect(fromSidecars.n).toBe(2);
+    expect(fromSidecars.coverage.n).toBe(2);
     expect(fromSidecars.mean).toBe(47.1);
 
     const inline: AthleticStandardFileT = {
@@ -751,9 +751,9 @@ ${records}
 
     // A person reading the rows sees the span; a program gets the milliseconds.
     expect(ath(["series", "steps", "--raw"], dir).stdout).toContain("420  over 5m");
-    expect(JSON.parse(ath(["series", "steps", "--raw", "--json"], dir).stdout)[0].samples[0].durationMs).toBe(
-      300_000,
-    );
+    expect(
+      JSON.parse(ath(["series", "steps", "--raw", "--json"], dir).stdout).days[0].samples[0].durationMs,
+    ).toBe(300_000);
   });
 
   it("refuses a file written in the old one-source-per-export layout, and says what to do", () => {

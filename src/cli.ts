@@ -20,9 +20,10 @@ import {
 } from "./validate.js";
 import { findFile, loadFile, loadFileRaw, saveFile, DEFAULT_FILENAME } from "./file.js";
 import { SEED_BENCHMARKS } from "./benchmarks.js";
-import { renderStats } from "./stats.js";
+import { renderStats, statsAsJson } from "./stats.js";
 import { checkSeriesRef, SERIES_DIR, seriesDirectory } from "./series.js";
 import {
+  coverageOfDays,
   matchingRefs,
   readRawDays,
   renderDaySummaries,
@@ -31,7 +32,7 @@ import {
 } from "./seriesview.js";
 import { importExport, PooledFileError, UnknownExportError } from "./import/index.js";
 import { silentProgress, terminalProgress } from "./progress.js";
-import { renderMergeSummary } from "./import/merge.js";
+import { mergeSummaryAsJson, renderMergeSummary } from "./import/merge.js";
 
 const program = new Command();
 
@@ -52,6 +53,7 @@ program
   .option("--units <units>", "metric | imperial (display preference only)", "metric")
   .option("--file <path>", "output path", DEFAULT_FILENAME)
   .option("-y, --yes", "non-interactive: use provided flags and defaults")
+  .option("--json", "structured output")
   .action(async (opts) => {
     const outPath = resolve(process.cwd(), opts.file);
     if (existsSync(outPath)) {
@@ -59,7 +61,7 @@ program
     }
 
     let { name, birthYear, sex } = { name: opts.name, birthYear: opts.birthYear, sex: opts.sex };
-    if (!opts.yes) {
+    if (!opts.yes && !opts.json) {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       name = name ?? ((await rl.question("Name (optional): ")) || undefined);
       birthYear = birthYear ?? ((await rl.question("Birth year (optional): ")) || undefined);
@@ -91,6 +93,20 @@ program
     }
 
     saveFile(outPath, file);
+    if (opts.json) {
+      console.log(
+        JSON.stringify(
+          {
+            created: outPath,
+            athleticstandard_version: ATHLETIC_STANDARD_VERSION,
+            benchmarks: SEED_BENCHMARKS.map((b) => b.id),
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
     console.log(`created ${outPath}`);
     console.log(`  seeded ${SEED_BENCHMARKS.length} benchmarks: ${SEED_BENCHMARKS.map((b) => b.id).join(", ")}`);
     console.log(`  next: \`ath import <export-file>\` to load device data`);
@@ -100,13 +116,31 @@ program
   .command("check")
   .description("validate a file against the schema and semantic rules")
   .argument("[file]", "path to the file (default: the one in this directory)")
-  .action((fileArg) => {
+  .option("--json", "structured output")
+  .action((fileArg, opts: { json?: boolean }) => {
     const path = findOrFail(fileArg);
     const raw = loadFileRaw(path);
     const result = validateAthleticStandardFile(raw);
     const issues = [...result.issues, ...seriesIssues(path, result)];
     const errors = issues.filter((i) => i.severity === "error");
     const warnings = issues.filter((i) => i.severity === "warning");
+
+    // The file's own version, not the tool's. A 0.2.0 file read by a 0.3.0 tool is
+    // valid and is still a 0.2.0 file, and saying otherwise hides that from the reader.
+    const version =
+      (raw as { athleticstandard_version?: string }).athleticstandard_version ?? null;
+
+    if (opts.json) {
+      console.log(
+        JSON.stringify(
+          { file: path, athleticstandard_version: version, valid: errors.length === 0, issues },
+          null,
+          2,
+        ),
+      );
+      if (errors.length > 0) process.exit(1);
+      return;
+    }
 
     for (const i of errors) console.error(`error  ${i.path}: ${i.message}`);
     for (const i of warnings) console.warn(`warn   ${i.path}: ${i.message}`);
@@ -115,13 +149,8 @@ program
       console.error(`\n${path}: INVALID — ${errors.length} error(s), ${warnings.length} warning(s)`);
       process.exit(1);
     }
-    // The file's own version, not the tool's. A 0.2.0 file read by a 0.3.0 tool is
-    // valid and is still a 0.2.0 file, and saying otherwise hides that from the reader.
-    const version =
-      (raw as { athleticstandard_version?: string }).athleticstandard_version ??
-      ATHLETIC_STANDARD_VERSION;
     console.log(
-      `${path}: valid Athletic Standard ${version} file` +
+      `${path}: valid Athletic Standard ${version ?? ATHLETIC_STANDARD_VERSION} file` +
         (warnings.length > 0 ? ` (${warnings.length} warning(s))` : ""),
     );
   });
@@ -131,7 +160,8 @@ program
   .description("load an Apple Health, WHOOP, or Oura export into the file")
   .argument("<path>", "the export: a zip, a folder, an export.xml, or a CSV")
   .option("--file <path>", "athlete file to import into (default: the one in this directory)")
-  .action(async (exportPath: string, opts: { file?: string }) => {
+  .option("--json", "structured output")
+  .action(async (exportPath: string, opts: { file?: string; json?: boolean }) => {
     const athletePath = findOrFail(opts.file);
     let file: AthleticStandardFileT;
     try {
@@ -142,7 +172,7 @@ program
 
     // The bar draws on stderr and only when a person is watching. Piped output and
     // tests get the summary alone.
-    const progress = process.stderr.isTTY ? terminalProgress() : silentProgress;
+    const progress = process.stderr.isTTY && !opts.json ? terminalProgress() : silentProgress;
     let result;
     try {
       result = await importExport(file, athletePath, resolve(process.cwd(), exportPath), progress);
@@ -164,7 +194,11 @@ program
     }
 
     saveFile(athletePath, file);
-    console.log(renderMergeSummary(result.summary, result.label));
+    console.log(
+      opts.json
+        ? JSON.stringify(mergeSummaryAsJson(result.summary, result.label), null, 2)
+        : renderMergeSummary(result.summary, result.label),
+    );
   });
 
 program
@@ -217,14 +251,34 @@ program
 
       if (opts.raw) {
         const days = readRawDays(path, refs, query);
-        console.log(opts.json ? JSON.stringify(days, null, 2) : renderRawDays(quantity, unit, days));
+        console.log(
+          opts.json
+            ? JSON.stringify(
+                {
+                  quantity,
+                  unit,
+                  coverage: coverageOfDays(
+                    quantity,
+                    days.map((d) => ({ day: d.day, source: d.source, n: d.samples.length })),
+                  ),
+                  days,
+                },
+                null,
+                2,
+              )
+            : renderRawDays(quantity, unit, days),
+        );
         return;
       }
 
       const rows = summarizeDays(path, refs, query);
       console.log(
         opts.json
-          ? JSON.stringify({ quantity, unit, days: rows }, null, 2)
+          ? JSON.stringify(
+              { quantity, unit, coverage: coverageOfDays(quantity, rows), days: rows },
+              null,
+              2,
+            )
           : renderDaySummaries(quantity, unit, rows),
       );
     },
@@ -234,9 +288,13 @@ program
   .command("stats")
   .description("summarize the file: counts, date ranges, baselines")
   .argument("[file]", "path to the file (default: the one in this directory)")
-  .action((fileArg) => {
+  .option("--json", "structured output")
+  .action((fileArg, opts: { json?: boolean }) => {
     const path = findOrFail(fileArg);
-    console.log(renderStats(loadFile(path), path));
+    const file = loadFile(path);
+    console.log(
+      opts.json ? JSON.stringify(statsAsJson(file, path), null, 2) : renderStats(file, path),
+    );
   });
 
 /**

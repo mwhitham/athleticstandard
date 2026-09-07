@@ -16,6 +16,7 @@ import type {
   SourceT,
 } from "../schema.js";
 import { SERIES_DIR, type BuiltSeries } from "../series.js";
+import { daysBetween, RULES } from "../coverage.js";
 
 /**
  * One device seen writing under one source, and when (D51).
@@ -467,6 +468,42 @@ export function describeSource(source: SourceT): string {
     return `${source.writer}${sensor}`;
   }
   return source.detail ?? source.kind;
+}
+
+/** The same summary as `renderMergeSummary`, as data (D47). */
+export function mergeSummaryAsJson(summary: MergeSummary, label: string): Record<string, unknown> {
+  return {
+    imported: label,
+    added: Object.fromEntries(
+      [...summary.added].map(([source, byType]) => [source, Object.fromEntries(byType)]),
+    ),
+    sources: Object.fromEntries(summary.sourceDetails),
+    first_seen: summary.firstSeen,
+    soft_signals_added: summary.softAdded,
+    duplicates_skipped: summary.duplicates + summary.softDuplicates,
+    moved_to_series: summary.movedToSeries,
+    series_files_written: summary.seriesWritten.length,
+    series_coverage: summary.coverage.map((ref) => ({
+      quantity: ref.quantity,
+      source: ref.source,
+      unit: ref.unit,
+      coverage: {
+        n: ref.n,
+        from: ref.from,
+        to: ref.to,
+        days_present: ref.days,
+        days_expected: daysBetween(ref.from, ref.to),
+        source: ref.source,
+        rule: RULES.dailySummary(ref.quantity),
+      },
+    })),
+    skipped: Object.fromEntries(
+      [...summary.skipped].map(([reason, count]) => [
+        reason,
+        { count, example: summary.skipExamples.get(reason) ?? null },
+      ]),
+    ),
+  };
 }
 
 /** The summary printed after an import. */

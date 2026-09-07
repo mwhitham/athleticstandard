@@ -33,7 +33,7 @@ describe("baselineFor", () => {
     ]);
     const b = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1");
     expect(b).not.toBeNull();
-    expect(b!.to).toBe("2026-08-30");
+    expect(b!.coverage.to).toBe("2026-08-30");
     expect(b!.mean).toBe(60);
   });
 
@@ -45,9 +45,9 @@ describe("baselineFor", () => {
     ]);
     const b = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1");
     expect(b).not.toBeNull();
-    expect(b!.from).toBe("2026-08-01");
-    expect(b!.to).toBe("2026-08-20");
-    expect(b!.n).toBe(3);
+    expect(b!.coverage.from).toBe("2026-08-01");
+    expect(b!.coverage.to).toBe("2026-08-20");
+    expect(b!.coverage.n).toBe(3);
     expect(b!.mean).toBe(60);
   });
 
@@ -59,10 +59,10 @@ describe("baselineFor", () => {
     ]);
     const b = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1", 90);
     expect(b).not.toBeNull();
-    expect(b!.n).toBe(2);
+    expect(b!.coverage.n).toBe(2);
     expect(b!.mean).toBe(60);
-    expect(b!.from).toBe("2026-08-01");
-    expect(b!.to).toBe("2026-08-30");
+    expect(b!.coverage.from).toBe("2026-08-01");
+    expect(b!.coverage.to).toBe("2026-08-30");
   });
 
   it("keeps each device's baseline to itself (D31)", () => {
@@ -81,9 +81,9 @@ describe("baselineFor", () => {
     const whoop = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1");
     const oura = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "oura-1");
     expect(whoop!.mean).toBe(60);
-    expect(whoop!.n).toBe(2);
+    expect(whoop!.coverage.n).toBe(2);
     expect(oura!.mean).toBe(90);
-    expect(oura!.n).toBe(2);
+    expect(oura!.coverage.n).toBe(2);
   });
 
   it("returns null for a source that never measured this type", () => {

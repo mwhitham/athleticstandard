@@ -4,13 +4,13 @@
  */
 import type { AthleticStandardFileT } from "./schema.js";
 import { latestReadingDay, readingsFor } from "./readings.js";
+import { coverageOf, daysBetween, renderCoverage, RULES, type Coverage } from "./coverage.js";
 
 export interface Baseline {
   mean: number;
   sd: number;
-  n: number;
-  from: string;
-  to: string;
+  /** What the mean rests on, and the rule that produced it (D47). */
+  coverage: Coverage;
 }
 
 function mean(xs: number[]): number {
@@ -66,15 +66,12 @@ export function baselineFor(
   const latest = readings.reduce((a, b) => (instant(a.at) >= instant(b.at) ? a : b));
   const cutoff = instant(latest.at) - windowDays * 86400_000;
   const windowed = readings.filter((r) => instant(r.at) >= cutoff);
-  const earliest = windowed.reduce((a, b) => (instant(a.at) <= instant(b.at) ? a : b));
   const values = windowed.map((r) => r.value);
   const m = mean(values);
   return {
     mean: Math.round(m * 10) / 10,
     sd: Math.round(sd(values, m) * 10) / 10,
-    n: windowed.length,
-    from: day(earliest.at),
-    to: day(latest.at),
+    coverage: coverageOf(windowed, source, RULES.baseline(type, windowDays))!,
   };
 }
 
@@ -107,6 +104,87 @@ export function sourceWindows(
   }
   return windows;
 }
+
+/**
+ * The same summary as `renderStats`, as data (D47).
+ *
+ * An agent reading prose is an agent guessing at where a number ends and its
+ * qualifier begins. Every figure here carries the coverage record the text prints.
+ */
+export function statsAsJson(
+  file: AthleticStandardFileT,
+  athleteFilePath: string,
+): Record<string, unknown> {
+  const windows = sourceWindows(file);
+  const hardByType = new Map<string, number>();
+  for (const s of file.hard_signals) hardByType.set(s.type, (hardByType.get(s.type) ?? 0) + 1);
+  const softByType = new Map<string, number>();
+  for (const s of file.soft_signals) softByType.set(s.type, (softByType.get(s.type) ?? 0) + 1);
+
+  const results = file.hard_signals.filter((s) => s.type === "benchmark_result");
+  const byBenchmark = new Map<string, number>();
+  for (const r of results) {
+    if (r.type === "benchmark_result") byBenchmark.set(r.benchmark, (byBenchmark.get(r.benchmark) ?? 0) + 1);
+  }
+
+  return {
+    athlete: file.athlete.name ?? null,
+    athleticstandard_version: file.athleticstandard_version,
+    hard_signals: { total: file.hard_signals.length, by_type: Object.fromEntries(hardByType) },
+    soft_signals: { total: file.soft_signals.length, by_type: Object.fromEntries(softByType) },
+    sources: file.sources.map((src) => ({
+      id: src.id,
+      kind: src.kind,
+      writer: src.writer ?? null,
+      via: src.via ?? null,
+      records: windows.get(src.id)?.n ?? 0,
+      from: windows.get(src.id)?.from ?? null,
+      to: windows.get(src.id)?.to ?? null,
+      devices: src.devices ?? [],
+    })),
+    baselines: file.sources.flatMap((src) =>
+      BASELINE_TYPES.map(([type, unit]) => ({ src, type, unit, b: baselineFor(file, athleteFilePath, type, src.id) }))
+        .filter((x) => x.b !== null)
+        .map(({ src, type, unit, b }) => ({
+          source: src.id,
+          type,
+          unit,
+          mean: b!.mean,
+          sd: b!.sd,
+          coverage: b!.coverage,
+        })),
+    ),
+    series: file.hard_signals
+      .filter((s): s is Extract<typeof s, { type: "series_ref" }> => s.type === "series_ref")
+      .map((s) => ({
+        quantity: s.quantity,
+        source: s.source,
+        unit: s.unit,
+        coverage: {
+          n: s.n,
+          from: s.from,
+          to: s.to,
+          days_present: s.days,
+          days_expected: daysBetween(s.from, s.to),
+          source: s.source,
+          rule: RULES.dailySummary(s.quantity),
+        },
+      })),
+    benchmarks: { defined: file.benchmarks.length, results: results.length, by_benchmark: Object.fromEntries(byBenchmark) },
+    predictions: {
+      total: file.predictions.length,
+      graded: file.predictions.filter((p) => p.grade !== null).length,
+    },
+  };
+}
+
+/** The measurements a baseline is worth showing for: the ones a prediction reads. */
+const BASELINE_TYPES: [string, string][] = [
+  ["hrv_rmssd", "ms"],
+  ["hrv_sdnn", "ms"],
+  ["resting_heart_rate", "bpm"],
+  ["respiratory_rate", "brpm"],
+];
 
 export function renderStats(file: AthleticStandardFileT, athleteFilePath: string): string {
   const lines: string[] = [];
@@ -180,14 +258,8 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
 
   // Baselines are listed per source, never pooled (D31). A reader comparing two
   // devices should see two numbers and decide, not one number hiding a disagreement.
-  const baselineTypes: [string, string][] = [
-    ["hrv_rmssd", "ms"],
-    ["hrv_sdnn", "ms"],
-    ["resting_heart_rate", "bpm"],
-    ["respiratory_rate", "brpm"],
-  ];
   const baselineRows = file.sources.flatMap((src) =>
-    baselineTypes
+    BASELINE_TYPES
       .map(([type, unit]) => ({
         source: src.id,
         type,
@@ -199,9 +271,8 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
   if (baselineRows.length > 0) {
     lines.push("90-day baselines (per source — never pooled across devices):");
     for (const { source, type, unit, b } of baselineRows) {
-      lines.push(
-        `  ${source} ${type}: ${b!.mean}${unit} (n=${b!.n}, ${b!.from} → ${b!.to}, sd ${b!.sd})`,
-      );
+      lines.push(`  ${source} ${type}: ${b!.mean}${unit} (sd ${b!.sd})`);
+      lines.push(`    ${renderCoverage(b!.coverage)}`);
     }
     lines.push("");
   }
@@ -214,9 +285,13 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
     for (const s of [...seriesRefs].sort((a, b) =>
       `${a.source} ${a.quantity}`.localeCompare(`${b.source} ${b.quantity}`),
     )) {
+      // Days present against days in the window, so a gap is visible rather than
+      // hidden behind a large sample count (D47).
+      const expected = daysBetween(s.from, s.to);
+      const span = s.days === expected ? `${s.days} day${s.days === 1 ? "" : "s"}` : `${s.days}/${expected} days`;
       lines.push(
         `  ${s.source} ${s.quantity}: ${s.n} sample${s.n === 1 ? "" : "s"} across ` +
-          `${s.days} day${s.days === 1 ? "" : "s"} (${s.from} → ${s.to})`,
+          `${span} (${s.from} → ${s.to})`,
       );
     }
     lines.push(`  read them with \`ath series <quantity>\``);
