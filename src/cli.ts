@@ -55,6 +55,7 @@ import {
 import { bareGuide, EXAMPLES, GROUPS, HELP_FOOTER } from "./help.js";
 import { importExport, PooledFileError, UnknownExportError } from "./import/index.js";
 import { silentProgress, terminalProgress } from "./progress.js";
+import { AGENT_DIRS, installSkill, skillSource } from "./skill.js";
 import { mergeSummaryAsJson, renderMergeSummary } from "./import/merge.js";
 
 const program = new Command();
@@ -82,6 +83,7 @@ program
   .option("--units <units>", "metric | imperial — display only; stored values are always metric", "metric")
   .option("--file <path>", "write somewhere other than the default name", DEFAULT_FILENAME)
   .option("-y, --yes", "skip the questions and use the flags and defaults")
+  .option("--no-skill", "do not install the agent skill, even if an agent folder is here")
   .option("--json", "structured output, for an agent rather than a person")
   .action(async (opts) => {
     const outPath = resolve(process.cwd(), opts.file);
@@ -126,6 +128,11 @@ program
     }
 
     saveFile(outPath, file);
+
+    // The skill goes wherever an agent will look for it, which is the agent's own
+    // folder. No folder means no agent here, which is an ordinary way to use this.
+    const installed = opts.skill === false ? [] : installSkill(process.cwd());
+
     if (opts.json) {
       console.log(
         JSON.stringify(
@@ -133,6 +140,7 @@ program
             created: outPath,
             athleticstandard_version: ATHLETIC_STANDARD_VERSION,
             benchmarks: SEED_BENCHMARKS.map((b) => b.id),
+            skill_installed: installed,
           },
           null,
           2,
@@ -142,6 +150,13 @@ program
     }
     console.log(`created ${outPath}`);
     console.log(`  seeded ${SEED_BENCHMARKS.length} benchmarks: ${SEED_BENCHMARKS.map((b) => b.id).join(", ")}`);
+    for (const path of installed) console.log(`  installed the agent skill into ${path}`);
+    if (opts.skill !== false && installed.length === 0) {
+      console.log(
+        `  no agent folder here (${AGENT_DIRS.join(", ")}), so the skill was not installed.`,
+      );
+      console.log(`  copy it from ${skillSource()} whenever you want it.`);
+    }
     console.log(`  next: \`ath import <export-file>\` to load device data`);
   });
 

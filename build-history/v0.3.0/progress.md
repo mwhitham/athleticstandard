@@ -13,7 +13,7 @@ Tracks the build order from `spec.md` §9. Update when a step lands.
 | 7 | `ath predict` | ✅ done |
 | 8 | `ath grade` | ✅ done |
 | 9 | Help rewrite and error messages | ✅ done |
-| 10 | `skill/`, installed by `init` | ⬜ |
+| 10 | `skill/`, installed by `init` | ✅ done |
 | 11 | SPEC.md, README, progress | ⬜ |
 
 v0.1.0 step 6 (`backtest` and the evals) stays open and is tracked in [v0.1.0/progress.md](../v0.1.0/progress.md). It measures a prompt that does not exist until the skill in step 10 is written.

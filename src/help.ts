@@ -77,7 +77,11 @@ Examples:
     $ ath init -y --name "Sam Reyes" --birth-year 1991 --sex female
 
 The file is created here, called athlete${FILE_SUFFIX}, with the well-known
-benchmarks already defined. Nothing leaves your machine.`,
+benchmarks already defined. Nothing leaves your machine.
+
+If there is an agent folder here — .claude, .cursor or .agents — the agent
+skill is copied into it, so an agent in this folder knows how to read and
+write the file. Pass --no-skill to skip that.`,
 
   check: `
 Examples:
