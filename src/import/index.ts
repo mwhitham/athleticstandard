@@ -60,6 +60,9 @@ export async function importExport(
   const pooled = pooledSources(file);
   if (pooled.length > 0) throw new PooledFileError(pooled.map((s) => s.id));
 
+  // Captured before parsing, because sources are created as writers are met (D52).
+  const knownSources = new Set(file.sources.map((s) => s.id));
+
   const detected = await detectExport(exportPath);
   const label = `${VENDOR_LABELS[detected.format]} export`;
   const via =
@@ -124,7 +127,7 @@ export async function importExport(
   }
   progress.finish();
 
-  const summary = mergePayload(file, payload, coverage);
+  const summary = mergePayload(file, payload, coverage, knownSources);
 
   return { summary, label };
 }

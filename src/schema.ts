@@ -60,7 +60,10 @@ export const Device = z
       .int()
       .nonnegative()
       .optional()
-      .describe("Records this device wrote, counted after deduplication"),
+      .describe(
+        "Records this device wrote into the document, counted after deduplication. " +
+          "Sidecar samples are counted per quantity by series_ref, not here.",
+      ),
   })
   .describe("A physical device seen writing under this source, without version or address");
 

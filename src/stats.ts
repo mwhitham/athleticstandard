@@ -78,6 +78,36 @@ export function baselineFor(
   };
 }
 
+/**
+ * The days each source covers, computed rather than stored (D51).
+ *
+ * Every hard signal names its source and every coverage record carries its own
+ * dates, so this is already in the file. Storing a copy would be a second thing to
+ * keep true. The per-device windows are stored because nothing can recover those.
+ */
+export function sourceWindows(
+  file: AthleticStandardFileT,
+): Map<string, { from: string; to: string; n: number }> {
+  const windows = new Map<string, { from: string; to: string; n: number }>();
+  for (const sig of file.hard_signals) {
+    const [first, last] =
+      sig.type === "series_ref"
+        ? [sig.from, sig.to]
+        : "recorded_at" in sig
+          ? [day(sig.recorded_at), day(sig.recorded_at)]
+          : [day(sig.start), day(sig.end)];
+    const seen = windows.get(sig.source);
+    if (!seen) {
+      windows.set(sig.source, { from: first, to: last, n: 1 });
+      continue;
+    }
+    if (first < seen.from) seen.from = first;
+    if (last > seen.to) seen.to = last;
+    seen.n++;
+  }
+  return windows;
+}
+
 export function renderStats(file: AthleticStandardFileT, athleteFilePath: string): string {
   const lines: string[] = [];
   const name = file.athlete.name ?? "unnamed athlete";
@@ -122,6 +152,7 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
   for (const s of file.hard_signals) {
     readingsBySource.set(s.source, (readingsBySource.get(s.source) ?? 0) + 1);
   }
+  const windows = sourceWindows(file);
   lines.push(`sources: ${file.sources.length}`);
   for (const src of file.sources) {
     const what =
@@ -130,15 +161,20 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
         : [src.writer, src.sensor, src.via ? `via ${src.via}` : undefined]
             .filter(Boolean)
             .join(", ") || (src.detail ?? src.kind);
-    const devices = (src.devices ?? [])
-      .map((d) => [d.name, d.hardware].filter(Boolean).join(" "))
-      .filter(Boolean);
     const n = readingsBySource.get(src.id) ?? 0;
+    const window = windows.get(src.id);
     lines.push(
-      `  ${src.id}: ${what}` +
-        (devices.length > 0 ? ` [${devices.join("; ")}]` : "") +
-        ` — ${n} record${n === 1 ? "" : "s"}`,
+      `  ${src.id}: ${what} — ${n} record${n === 1 ? "" : "s"}` +
+        (window ? `, ${window.from} → ${window.to}` : ""),
     );
+    // What the source is made of (D51). A replaced watch keeps the same name, so the
+    // windows are the only place the change is visible.
+    for (const device of src.devices ?? []) {
+      const label = [device.name, device.hardware ?? device.model].filter(Boolean).join(" ");
+      const wrote = device.n === undefined ? "" : ` — ${device.n} record${device.n === 1 ? "" : "s"}`;
+      const when = device.from && device.to ? `, ${device.from} → ${device.to}` : "";
+      lines.push(`    ${label || "unnamed device"}${wrote}${when}`);
+    }
   }
   lines.push("");
 

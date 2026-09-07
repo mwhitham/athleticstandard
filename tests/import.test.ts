@@ -607,6 +607,90 @@ ${records}
     expect(watch.devices!.map((d) => d.hardware)).toEqual(["Watch6,2", "Watch7,1"]);
   });
 
+  describe("the device index (D51)", () => {
+    /** A resting heart rate lands in the document, so it is a record the index counts. */
+    const rhr = (writer: string, at: string, bpm: number, device = "") =>
+      `<Record type="HKQuantityTypeIdentifierRestingHeartRate" sourceName="${writer}" ${device} ` +
+      `unit="count/min" startDate="${at}" endDate="${at}" value="${bpm}"/>`;
+
+    const twoWatches = exportOf(
+      [
+        rhr("Apple Watch", "2026-06-01 07:00:00 -0700", 52, WATCH_DEVICE),
+        rhr("Apple Watch", "2026-06-02 07:00:00 -0700", 51, WATCH_DEVICE),
+        rhr("Apple Watch", "2026-08-09 07:00:00 -0700", 49, NEW_WATCH_DEVICE),
+      ].join("\n"),
+    );
+
+    it("gives a replaced watch its own window and count under the same source", () => {
+      const { file } = importXml(twoWatches);
+      const devices = file.sources.find((s) => s.id === "apple-watch-1")!.devices!;
+      expect(devices).toHaveLength(2);
+      expect(devices[0]).toMatchObject({
+        hardware: "Watch6,2",
+        from: "2026-06-01",
+        to: "2026-06-02",
+        n: 2,
+      });
+      expect(devices[1]).toMatchObject({
+        hardware: "Watch7,1",
+        from: "2026-08-09",
+        to: "2026-08-09",
+        n: 1,
+      });
+    });
+
+    it("leaves the counts unchanged when the same export is imported twice", () => {
+      const { dir, file } = importXml(twoWatches);
+      const before = file.sources.find((s) => s.id === "apple-watch-1")!.devices;
+      expect(ath(["import", join(dir, "export.xml")], dir).code).toBe(0);
+      expect(read(dir).sources.find((s) => s.id === "apple-watch-1")!.devices).toEqual(before);
+    });
+
+    it("widens a window rather than resetting it when older records arrive later", () => {
+      const { dir } = importXml(
+        exportOf(rhr("Apple Watch", "2026-06-02 07:00:00 -0700", 51, WATCH_DEVICE)),
+      );
+      writeFileSync(
+        join(dir, "export.xml"),
+        exportOf(
+          [
+            rhr("Apple Watch", "2026-01-04 07:00:00 -0700", 55, WATCH_DEVICE),
+            rhr("Apple Watch", "2026-06-02 07:00:00 -0700", 51, WATCH_DEVICE),
+          ].join("\n"),
+        ),
+      );
+      expect(ath(["import", join(dir, "export.xml")], dir).code).toBe(0);
+      const device = read(dir).sources.find((s) => s.id === "apple-watch-1")!.devices![0]!;
+      // The day moved back and the repeated record was not counted a second time.
+      expect(device).toMatchObject({ from: "2026-01-04", to: "2026-06-02", n: 2 });
+    });
+
+    it("records no device for an export that names none, rather than a blank entry", () => {
+      const { file } = importXml(exportOf(rhr("WHOOP", "2026-06-01 07:00:00 -0700", 50)));
+      expect(file.sources.find((s) => s.id === "whoop-1")!.devices).toBeUndefined();
+    });
+
+    it("names a new device, a new source, and a new quantity in the import summary (D52)", () => {
+      const { dir, res } = importXml(
+        exportOf(rhr("Apple Watch", "2026-06-01 07:00:00 -0700", 52, WATCH_DEVICE)),
+      );
+      expect(res.stdout).toContain("first seen in this import:");
+      expect(res.stdout).toContain("new source apple-watch-1");
+      expect(res.stdout).toContain("new device under apple-watch-1: Apple Watch Watch6,2");
+      expect(res.stdout).toContain("apple-watch-1 has not written resting_heart_rate before");
+
+      // A second watch under the same name is the seam this exists to show.
+      writeFileSync(
+        join(dir, "export.xml"),
+        exportOf(rhr("Apple Watch", "2026-08-09 07:00:00 -0700", 49, NEW_WATCH_DEVICE)),
+      );
+      const again = ath(["import", join(dir, "export.xml")], dir);
+      expect(again.stdout).toContain("new device under apple-watch-1: Apple Watch Watch7,1");
+      expect(again.stdout).not.toContain("new source");
+      expect(again.stdout).not.toContain("has not written resting_heart_rate before");
+    });
+  });
+
   it("drops the person's name from the id but keeps the writer as written", () => {
     const { file } = importXml(exportOf(hr("Alex's Apple Watch", "2026-08-09 08:00:00 -0700", 60)));
     const watch = file.sources.find((s) => s.writer === "Alex's Apple Watch")!;
@@ -976,9 +1060,13 @@ describe("ath import — multiple devices", () => {
     // same hardware at 10.6 and a different memory address, one with no device at all.
     // One source, one device, no version and no address.
     const watch = file.sources.find((s) => s.id === "apple-watch-1")!;
-    expect(watch.devices).toEqual([
-      { name: "Apple Watch", manufacturer: "Apple Inc.", model: "Watch", hardware: "Watch6,2" },
-    ]);
+    expect(watch.devices).toHaveLength(1);
+    expect(watch.devices![0]).toMatchObject({
+      name: "Apple Watch",
+      manufacturer: "Apple Inc.",
+      model: "Watch",
+      hardware: "Watch6,2",
+    });
     expect(JSON.stringify(watch)).not.toContain("0x28");
     expect(JSON.stringify(watch)).not.toContain("10.2");
   });
@@ -1005,10 +1093,19 @@ describe("ath import — multiple devices", () => {
   it("lists every source with what wrote it, so an agent can tell them apart", () => {
     const stats = ath(["stats"], dir).stdout;
     expect(stats).toMatch(/^sources: 10$/m);
-    expect(stats).toContain("apple-watch-1: Apple Watch, via apple_health [Apple Watch Watch6,2]");
+    expect(stats).toContain("apple-watch-1: Apple Watch, via apple_health");
     expect(stats).toContain("whoop-1: WHOOP, via apple_health");
     expect(stats).toContain("whoop-2: WHOOP, via whoop_csv");
     expect(stats).toContain("manual-1: typed in by hand");
+  });
+
+  it("shows what a source is made of, so a swapped watch is visible (D51)", () => {
+    const stats = ath(["stats"], dir).stdout;
+    // Indented under the source, with the window and how much it wrote.
+    expect(stats).toMatch(/ {4}Apple Watch Watch6,2 — \d+ records?, \d{4}-\d{2}-\d{2} → \d{4}-\d{2}-\d{2}/);
+    // WHOOP's own CSV names no device, so its source stands alone rather than
+    // carrying a blank entry.
+    expect(stats).toMatch(/ {2}whoop-2: WHOOP, via whoop_csv — \d+ records?, /);
   });
 
   it("lists vendor scores apart from measurements", () => {
