@@ -73,7 +73,7 @@ describe("ath series", () => {
 
     const wrong = ath(["series", "ecg_beats", "--source", "apple-watch-1"], dir);
     expect(wrong.code).toBe(1);
-    expect(wrong.stdout).toContain("no ecg_beats series recorded for source 'apple-watch-1'");
+    expect(wrong.stdout).toContain("no ecg_beats series from 'apple-watch-1'");
   });
 
   it("names the quantities it knows when given one it does not", () => {

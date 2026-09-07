@@ -177,7 +177,9 @@ describe("ath log — the direction of failure (D59)", () => {
     "felt strong but the last round fell apart",
   ];
 
-  it("cannot produce a hard signal from text naming no measurement and no score", () => {
+  // Seven entries, each a fresh file and two CLI runs, so this one needs longer than
+  // the default five seconds when the suite runs in parallel.
+  it("cannot produce a hard signal from text naming no measurement and no score", { timeout: 30_000 }, () => {
     for (const text of noNameNoNumber) {
       const { file } = log(text.split(" "));
       expect(file.hard_signals, `"${text}" reached the measured tier`).toHaveLength(0);
