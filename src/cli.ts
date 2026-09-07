@@ -44,6 +44,14 @@ import {
 } from "./log.js";
 import { evidenceFor } from "./context.js";
 import { benchmarkOrRefuse, evidenceAsJson, PredictRefusal, renderEvidence } from "./predict.js";
+import {
+  analysisAsJson,
+  attachAnalysis,
+  gradeAsJson,
+  gradeAttempt,
+  GradeRefusal,
+  renderGrade,
+} from "./grade.js";
 import { importExport, PooledFileError, UnknownExportError } from "./import/index.js";
 import { silentProgress, terminalProgress } from "./progress.js";
 import { mergeSummaryAsJson, renderMergeSummary } from "./import/merge.js";
@@ -417,6 +425,84 @@ program
   });
 
 program
+  .command("grade")
+  .description("record what actually happened, and score the prediction against it")
+  .argument("<benchmark>", "the benchmark that was attempted, e.g. `fran`")
+  .option("--actual <score>", "what happened: `4:32` for a time, `245` for reps, `100kg` for a load")
+  .option("--date <date>", "the day of the attempt, as YYYY-MM-DD (default: today)")
+  .option("--scaling <rx|scaled>", "whether the workout was done as written")
+  .option("--analysis <json>", "the agent's miss analysis, written after reading the dossier")
+  .option("--file <path>", "athlete file to change (default: the one in this directory)")
+  .option("--json", "structured output")
+  .action((benchmarkId: string, opts: GradeOptions) => {
+    const path = findOrFail(opts.file);
+    let file: AthleticStandardFileT;
+    try {
+      file = loadFile(path);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+
+    let benchmark;
+    try {
+      benchmark = benchmarkOrRefuse(file, benchmarkId);
+    } catch (e) {
+      if (e instanceof PredictRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    if (opts.analysis === undefined && opts.actual === undefined) {
+      return fail(
+        `say what happened: \`ath grade ${benchmarkId} --actual 4:32\`. ` +
+          `Use --analysis afterwards to write up a miss.`,
+      );
+    }
+
+    // Two calls, in the order the grading procedure runs: the result and the grade
+    // first, then the analysis an agent wrote after reading the dossier (D62).
+    try {
+      const written =
+        opts.analysis !== undefined
+          ? analysisAsJson(attachAnalysis(file, benchmark, opts.analysis))
+          : null;
+
+      const outcome = opts.actual
+        ? gradeAttempt(file, path, benchmark, opts.actual, {
+            date: opts.date,
+            scaling: opts.scaling,
+          })
+        : null;
+
+      const validation = validateAthleticStandardFile(file);
+      if (!validation.valid) {
+        const first = validation.issues.filter((i) => i.severity === "error").slice(0, 5);
+        return fail(
+          `that would make the file invalid, so nothing was written:\n` +
+            first.map((i) => `  ${i.path}: ${i.message}`).join("\n"),
+        );
+      }
+      saveFile(path, file);
+
+      if (opts.json) {
+        console.log(
+          JSON.stringify({ ...(outcome ? gradeAsJson(outcome) : {}), ...(written ?? {}) }, null, 2),
+        );
+        return;
+      }
+      if (outcome) console.log(renderGrade(outcome));
+      if (written) {
+        console.log(
+          `analysis attached to '${written.prediction}'` +
+            ((written.miss_analysis as { unexplained: boolean }).unexplained ? ", marked unexplained" : ""),
+        );
+      }
+    } catch (e) {
+      if (e instanceof GradeRefusal) return fail((e as Error).message);
+      throw e;
+    }
+  });
+
+program
   .command("series")
   .description("read a sample series back: one row per day, or the raw samples")
   .argument("<quantity>", `one of: ${Object.keys(SERIES_QUANTITY_UNITS).join(", ")}`)
@@ -607,6 +693,15 @@ async function offerWaitingMatches(waiting: ReturnType<typeof waitingMatches>): 
     linked++;
   }
   return linked;
+}
+
+interface GradeOptions {
+  actual?: string;
+  date?: string;
+  scaling?: "rx" | "scaled";
+  analysis?: string;
+  file?: string;
+  json?: boolean;
 }
 
 interface LogOptions {

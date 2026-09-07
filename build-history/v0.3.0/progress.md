@@ -11,7 +11,7 @@ Tracks the build order from `spec.md` §9. Update when a step lands.
 | 5 | `ath log` | ✅ done |
 | 6 | Session matching and `ath link` | ✅ done |
 | 7 | `ath predict` | ✅ done |
-| 8 | `ath grade` | ⬜ |
+| 8 | `ath grade` | ✅ done |
 | 9 | Help rewrite and error messages | ⬜ |
 | 10 | `skill/`, installed by `init` | ⬜ |
 | 11 | SPEC.md, README, progress | ⬜ |

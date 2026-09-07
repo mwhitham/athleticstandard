@@ -69,7 +69,7 @@ export function localTimestamp(at: Date): string {
 }
 
 /** Midday on a past date, since a day with no time still has to be an instant. */
-function noonOn(day: string): string {
+export function noonOn(day: string): string {
   const [y, m, d] = day.split("-").map(Number);
   return localTimestamp(new Date(y!, m! - 1, d!, 12, 0, 0));
 }

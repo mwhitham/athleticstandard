@@ -206,3 +206,46 @@ Rejected alternatives:
 
 - **Document the word list itself.** Rejected as a list that goes stale the moment a term is added, and as more detail than a reader needs. The two columns show the boundary without enumerating it.
 - **Show only the agent path, since that is the intended interface.** Rejected because it hides what happens when someone tries the tool on its own, which is how most people will first meet it.
+
+## D61. A prediction that stated no range cannot be a hit
+
+A hit is defined in [v0.1.0 §6](../v0.1.0/spec.md) as the actual landing inside the prediction's stated range. `range` is optional, so a prediction can arrive without one, and then there is no range for anything to land inside.
+
+Such a prediction is graded on the error alone and is never a hit. The output says so in those words, and the miss dossier follows as it would for any other miss.
+
+The reason is that a range is the claim about uncertainty, and grading is where a claim is tested. A prediction that made no claim about its own uncertainty should not collect the outcome reserved for one that did.
+
+Rejected alternatives:
+
+- **Treat an exact match as a hit when no range was given.** Rejected because an exact match on a time is chance, and rewarding it teaches the agent that a bare number is as good as a stated range.
+- **Refuse to grade a prediction with no range.** Rejected because the error is still worth measuring, and refusing would leave the prediction open forever.
+- **Make `range` required.** Rejected because it is a format change to fix a grading question, and a 0.2.0 file holding a prediction without a range would stop loading.
+
+## D62. The agent's miss analysis is written back through `ath grade --analysis`, and every cause it names is checked
+
+Step 3 of the grading procedure is the agent's: read the dossier and write `miss_analysis`. Nothing said how it reaches the file. Editing the file directly would put a second write path beside `ath log` (D55), and `ath log` appends records rather than filling in a field on one that exists.
+
+So the analysis comes back through the command that owns the prediction record, as a second call: `ath grade <benchmark> --analysis '<json>'`.
+
+One rule is enforced there rather than asked for. Every entry in `candidate_causes` names a tier, a type, and a day, and the tool checks that the file holds such a signal before writing anything. Inventing a plausible cause is the failure this step is most prone to, and a tool can check it, so the check belongs in the tool (D46). Where nothing explains the miss, `unexplained: true` is the honest answer and the tool accepts it with no causes at all.
+
+Analysing a hit is refused, for the reason v0.1.0 gives: explaining a result that landed where it was meant to is a story told afterwards.
+
+Rejected alternatives:
+
+- **Let `ath log` take a prediction with an existing id and merge the analysis in.** Rejected because a command called log should add records, not quietly change ones already written.
+- **A separate `ath analyse` command.** Rejected as a fourth command in a loop that already has three, for one field on one record.
+- **Accept the analysis without checking the causes.** Rejected because that leaves the format's one auditable claim — that a cause exists in the file — resting on an instruction in a skill.
+
+## D63. The dossier's anomaly test compares a day's mean against the spread of daily means
+
+[v0.1.0 §6](../v0.1.0/spec.md) asks for readings in the last week more than 1.5 standard deviations from the athlete's baseline. A reading is not one thing: a device reporting one figure a night writes one reading, and a device sampling through the night writes thousands (D43).
+
+Comparing one of those thousands against the spread of all of them answers a different question, and answers it with a far wider spread, so a bad night would never show. So the day's mean is compared against the mean and spread of daily means over the 90 days before it. Like is compared with like.
+
+The dossier prints both numbers and the rule in words, so the comparison can be checked rather than taken on trust (D47).
+
+Rejected alternatives:
+
+- **Reuse `baselineFor`, which spreads over individual readings.** Rejected because the two numbers would be measuring different things while looking the same, which is the drift D22 warns about with SDNN and RMSSD.
+- **Flag individual samples.** Rejected because one anomalous beat interval in a night of thousands is noise, and a dossier listing hundreds of them is a dossier nobody reads.
