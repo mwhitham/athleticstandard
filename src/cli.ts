@@ -30,6 +30,16 @@ import {
   renderRawDays,
   summarizeDays,
 } from "./seriesview.js";
+import {
+  applyDraft,
+  buildDraft,
+  draftAsJson,
+  linkResult,
+  LogRefusal,
+  renderDraft,
+  renderQuestion,
+  renderWritten,
+} from "./log.js";
 import { importExport, PooledFileError, UnknownExportError } from "./import/index.js";
 import { silentProgress, terminalProgress } from "./progress.js";
 import { mergeSummaryAsJson, renderMergeSummary } from "./import/merge.js";
@@ -202,6 +212,137 @@ program
   });
 
 program
+  .command("log")
+  .description("write something down: a workout result, a measurement, or how you felt")
+  .argument("[entry...]", "the entry, unquoted. Leave it off to paste one, ending with Ctrl-D")
+  .option("--benchmark <name>", "name the workout, instead of naming it after the day")
+  .option("--date <date>", "the day it happened, as YYYY-MM-DD (default: today)")
+  .option("--scaling <rx|scaled>", "whether the workout was done as written")
+  .option("--file <path>", "athlete file to write to (default: the one in this directory)")
+  .option("-y, --yes", "skip the question and write it")
+  .option("--dry-run", "show what would be written, and write nothing")
+  .option("--json", "structured output")
+  .action(async (words: string[], opts: LogOptions) => {
+    const path = findOrFail(opts.file);
+    let file: AthleticStandardFileT;
+    try {
+      file = loadFile(path);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+
+    // No words on the line means the entry is being pasted. A workout runs to several
+    // lines and often carries a `"` for the box height, and a shell breaks on both,
+    // so reading the paste is the only way to take one unquoted (D58).
+    const text = words.length > 0 ? words.join(" ") : await readStdin();
+    if (text.trim() === "") {
+      return fail(
+        `nothing to log. Type it on the line — \`ath log slept badly, about 5 hours\` — or run ` +
+          `\`ath log\` on its own and paste it, ending with Ctrl-D.`,
+      );
+    }
+
+    let draft;
+    try {
+      draft = buildDraft(file, {
+        text,
+        benchmark: opts.benchmark,
+        date: opts.date,
+        scaling: opts.scaling,
+      });
+    } catch (e) {
+      if (e instanceof LogRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    if (draft.blocks.length === 0) return fail("nothing to log.");
+
+    // The summary, then one question. Every guess the tool made is on the screen
+    // before anything reaches the file (D56).
+    if (!opts.json) console.log(renderDraft(draft));
+
+    if (opts.dryRun) {
+      // The question is shown rather than asked, so a preview shows the whole shape
+      // including the extra key a second candidate session adds.
+      if (opts.json) console.log(JSON.stringify(draftAsJson(draft, false), null, 2));
+      else console.log(`\n${renderQuestion(draft)}\nnothing written (--dry-run)`);
+      return;
+    }
+
+    if (!opts.yes && !opts.json && process.stdout.isTTY) {
+      const answer = await askOnTerminal(`\n${renderQuestion(draft)} `);
+      if (answer === null) return fail("no terminal to ask on — pass --yes to write without asking");
+      const choice = Number(answer);
+      if (Number.isInteger(choice) && choice >= 2 && choice <= draft.candidates.length) {
+        draft.chosenCandidate = choice - 1;
+      } else if (!/^y(es)?$/i.test(answer)) {
+        console.log("nothing written");
+        return;
+      }
+    }
+
+    try {
+      applyDraft(file, draft);
+    } catch (e) {
+      if (e instanceof LogRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    const validation = validateAthleticStandardFile(file);
+    if (!validation.valid) {
+      const first = validation.issues.filter((i) => i.severity === "error").slice(0, 5);
+      return fail(
+        `that would make the file invalid, so nothing was written:\n` +
+          first.map((i) => `  ${i.path}: ${i.message}`).join("\n"),
+      );
+    }
+
+    saveFile(path, file);
+    console.log(opts.json ? JSON.stringify(draftAsJson(draft, true), null, 2) : `\n${renderWritten(draft)}`);
+  });
+
+program
+  .command("link")
+  .description("attach a workout result to the device session it happened in")
+  .argument("<result>", "the benchmark, e.g. `fran`, or `fran@2026-09-04` when there are several")
+  .argument("<session>", "the session's start: `17:25`, a full timestamp, or `whoop-1@<timestamp>`")
+  .option("--file <path>", "athlete file to change (default: the one in this directory)")
+  .option("--json", "structured output")
+  .action((result: string, session: string, opts: { file?: string; json?: boolean }) => {
+    const path = findOrFail(opts.file);
+    let file: AthleticStandardFileT;
+    try {
+      file = loadFile(path);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+
+    let outcome;
+    try {
+      outcome = linkResult(file, result, session);
+    } catch (e) {
+      if (e instanceof LogRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    const validation = validateAthleticStandardFile(file);
+    if (!validation.valid) {
+      return fail(`that link would make the file invalid, so nothing was written`);
+    }
+    saveFile(path, file);
+
+    if (opts.json) {
+      console.log(JSON.stringify(outcome, null, 2));
+      return;
+    }
+    console.log(
+      `${outcome.benchmark} on ${outcome.recordedAt.slice(0, 10)} is now linked to the ` +
+        `${outcome.session.start.slice(11, 16)} session on ${outcome.session.source}` +
+        (outcome.replaced ? ` (was ${outcome.replaced.start.slice(11, 16)} on ${outcome.replaced.source})` : ""),
+    );
+  });
+
+program
   .command("series")
   .description("read a sample series back: one row per day, or the raw samples")
   .argument("<quantity>", `one of: ${Object.keys(SERIES_QUANTITY_UNITS).join(", ")}`)
@@ -349,6 +490,51 @@ function seriesIssues(path: string, result: ValidationResult): ValidationIssue[]
     }
   }
   return issues;
+}
+
+interface LogOptions {
+  benchmark?: string;
+  date?: string;
+  scaling?: "rx" | "scaled";
+  file?: string;
+  yes?: boolean;
+  dryRun?: boolean;
+  json?: boolean;
+}
+
+/** Everything piped or pasted, to the end. Empty when nothing is coming. */
+async function readStdin(): Promise<string> {
+  if (process.stdin.isTTY) {
+    process.stderr.write("Paste the entry, then press Ctrl-D:\n");
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/**
+ * Ask on the terminal itself rather than on stdin.
+ *
+ * When the entry was pasted, stdin has already ended at Ctrl-D, so there is nothing
+ * left to read an answer from. The terminal is still there, so the question goes to
+ * it directly. Returns null where there is no terminal at all.
+ */
+async function askOnTerminal(question: string): Promise<string | null> {
+  const { createReadStream } = await import("node:fs");
+  let input: NodeJS.ReadableStream;
+  try {
+    input = process.stdin.isTTY && process.stdin.readable ? process.stdin : createReadStream("/dev/tty");
+  } catch {
+    return null;
+  }
+  const rl = createInterface({ input, output: process.stdout });
+  try {
+    return (await rl.question(question)).trim();
+  } catch {
+    return null;
+  } finally {
+    rl.close();
+  }
 }
 
 function findOrFail(fileArg?: string): string {
