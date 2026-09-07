@@ -39,8 +39,11 @@ import {
   renderDraft,
   renderQuestion,
   renderWritten,
+  today,
   waitingMatches,
 } from "./log.js";
+import { evidenceFor } from "./context.js";
+import { benchmarkOrRefuse, evidenceAsJson, PredictRefusal, renderEvidence } from "./predict.js";
 import { importExport, PooledFileError, UnknownExportError } from "./import/index.js";
 import { silentProgress, terminalProgress } from "./progress.js";
 import { mergeSummaryAsJson, renderMergeSummary } from "./import/merge.js";
@@ -378,6 +381,39 @@ program
         `${outcome.session.start.slice(11, 16)} session on ${outcome.session.source}` +
         (outcome.replaced ? ` (was ${outcome.replaced.start.slice(11, 16)} on ${outcome.replaced.source})` : ""),
     );
+  });
+
+program
+  .command("predict")
+  .description("print the evidence a prediction rests on — reads only, writes nothing")
+  .argument("<benchmark>", "the benchmark to predict, e.g. `fran`. See them all with `ath stats`")
+  .option("--as-of <date>", "pretend it is this day, hiding everything after it (YYYY-MM-DD)")
+  .option("--file <path>", "athlete file to read (default: the one in this directory)")
+  .option("--json", "structured output")
+  .action((benchmarkId: string, opts: { asOf?: string; file?: string; json?: boolean }) => {
+    const path = findOrFail(opts.file);
+    let file: AthleticStandardFileT;
+    try {
+      file = loadFile(path);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+
+    const asOf = opts.asOf ?? today();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf) || Number.isNaN(Date.parse(`${asOf}T00:00:00Z`))) {
+      return fail(`--as-of takes a day written as YYYY-MM-DD, not '${asOf}'.`);
+    }
+
+    let benchmark;
+    try {
+      benchmark = benchmarkOrRefuse(file, benchmarkId);
+    } catch (e) {
+      if (e instanceof PredictRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    const evidence = evidenceFor(file, path, benchmark, asOf);
+    console.log(opts.json ? JSON.stringify(evidenceAsJson(evidence), null, 2) : renderEvidence(evidence));
   });
 
 program
