@@ -1,5 +1,5 @@
 {
-  "athleticstandard_version": "0.2.0",
+  "athleticstandard_version": "0.3.0",
   "athlete": {
     "name": "Demo Athlete",
     "birth_year": 1991,
@@ -11,7 +11,17 @@
       "id": "whoop-1",
       "kind": "wearable",
       "vendor": "whoop",
-      "detail": "WHOOP 4.0 via CSV export (synthetic fixture data)"
+      "detail": "WHOOP 4.0 via CSV export (synthetic fixture data)",
+      "devices": [
+        {
+          "name": "WHOOP",
+          "manufacturer": "WHOOP",
+          "model": "4.0",
+          "from": "2025-05-31",
+          "to": "2026-08-01",
+          "n": 1582
+        }
+      ]
     },
     {
       "id": "manual-1",
@@ -990,12 +1000,16 @@
     {
       "type": "benchmark_result",
       "benchmark": "fran",
-      "recorded_at": "2025-06-25T18:15:49Z",
+      "recorded_at": "2025-06-25T17:44:58Z",
       "source": "manual-1",
       "result": {
         "duration_s": 307
       },
       "scaling": "rx",
+      "session": {
+        "source": "whoop-1",
+        "start": "2025-06-25T17:05:00Z"
+      },
       "note": "first timed Fran"
     },
     {
@@ -2806,10 +2820,10 @@
     {
       "type": "benchmark_result",
       "benchmark": "helen",
-      "recorded_at": "2025-08-06T18:15:03Z",
+      "recorded_at": "2025-08-06T18:15:30Z",
       "source": "manual-1",
       "result": {
-        "duration_s": 591
+        "duration_s": 593
       },
       "scaling": "rx"
     },
@@ -4328,12 +4342,16 @@
     {
       "type": "benchmark_result",
       "benchmark": "5k-run",
-      "recorded_at": "2025-09-10T18:15:18Z",
+      "recorded_at": "2025-09-10T18:02:18Z",
       "source": "manual-1",
       "result": {
-        "duration_s": 1499
+        "duration_s": 1484
       },
-      "scaling": "rx"
+      "scaling": "rx",
+      "session": {
+        "source": "whoop-1",
+        "start": "2025-09-10T17:25:00Z"
+      }
     },
     {
       "type": "sleep_session",
@@ -6239,12 +6257,16 @@
     {
       "type": "benchmark_result",
       "benchmark": "fran",
-      "recorded_at": "2025-10-28T18:15:49Z",
+      "recorded_at": "2025-10-28T17:44:14Z",
       "source": "manual-1",
       "result": {
-        "duration_s": 286
+        "duration_s": 287
       },
-      "scaling": "rx"
+      "scaling": "rx",
+      "session": {
+        "source": "whoop-1",
+        "start": "2025-10-28T17:09:00Z"
+      }
     },
     {
       "type": "sleep_session",
@@ -7235,12 +7257,16 @@
     {
       "type": "benchmark_result",
       "benchmark": "grace",
-      "recorded_at": "2025-11-21T18:15:19Z",
+      "recorded_at": "2025-11-21T17:36:34Z",
       "source": "manual-1",
       "result": {
-        "duration_s": 212
+        "duration_s": 211
       },
-      "scaling": "rx"
+      "scaling": "rx",
+      "session": {
+        "source": "whoop-1",
+        "start": "2025-11-21T17:01:00Z"
+      }
     },
     {
       "type": "sleep_session",
@@ -8811,7 +8837,7 @@
     {
       "type": "benchmark_result",
       "benchmark": "helen",
-      "recorded_at": "2026-01-01T18:15:45Z",
+      "recorded_at": "2026-01-01T18:15:19Z",
       "source": "manual-1",
       "result": {
         "duration_s": 561
@@ -10774,12 +10800,16 @@
     {
       "type": "benchmark_result",
       "benchmark": "fran",
-      "recorded_at": "2026-02-18T18:15:27Z",
+      "recorded_at": "2026-02-18T18:03:07Z",
       "source": "manual-1",
       "result": {
-        "duration_s": 292
+        "duration_s": 301
       },
       "scaling": "rx",
+      "session": {
+        "source": "whoop-1",
+        "start": "2026-02-18T17:23:00Z"
+      },
       "note": "unbroken thrusters first two rounds"
     },
     {
@@ -12307,12 +12337,16 @@
     {
       "type": "benchmark_result",
       "benchmark": "5k-run",
-      "recorded_at": "2026-03-26T18:15:48Z",
+      "recorded_at": "2026-03-26T17:50:23Z",
       "source": "manual-1",
       "result": {
-        "duration_s": 1435
+        "duration_s": 1429
       },
-      "scaling": "rx"
+      "scaling": "rx",
+      "session": {
+        "source": "whoop-1",
+        "start": "2026-03-26T17:21:00Z"
+      }
     },
     {
       "type": "sleep_session",
@@ -13713,12 +13747,16 @@
     {
       "type": "benchmark_result",
       "benchmark": "grace",
-      "recorded_at": "2026-04-28T18:15:47Z",
+      "recorded_at": "2026-04-28T17:46:21Z",
       "source": "manual-1",
       "result": {
-        "duration_s": 185
+        "duration_s": 183
       },
-      "scaling": "rx"
+      "scaling": "rx",
+      "session": {
+        "source": "whoop-1",
+        "start": "2026-04-28T17:13:00Z"
+      }
     },
     {
       "type": "sleep_session",
@@ -15150,12 +15188,16 @@
     {
       "type": "benchmark_result",
       "benchmark": "fran",
-      "recorded_at": "2026-06-02T18:15:07Z",
+      "recorded_at": "2026-06-02T17:54:25Z",
       "source": "manual-1",
       "result": {
         "duration_s": 275
       },
-      "scaling": "rx"
+      "scaling": "rx",
+      "session": {
+        "source": "whoop-1",
+        "start": "2026-06-02T17:20:00Z"
+      }
     },
     {
       "type": "sleep_session",
@@ -16557,10 +16599,10 @@
     {
       "type": "benchmark_result",
       "benchmark": "helen",
-      "recorded_at": "2026-07-07T18:15:50Z",
+      "recorded_at": "2026-07-07T18:15:47Z",
       "source": "manual-1",
       "result": {
-        "duration_s": 546
+        "duration_s": 553
       },
       "scaling": "rx"
     },

@@ -102,7 +102,8 @@ program
   .argument("[file]", "path to the file (default: the one in this directory)")
   .action((fileArg) => {
     const path = findOrFail(fileArg);
-    const result = validateAthleticStandardFile(loadFileRaw(path));
+    const raw = loadFileRaw(path);
+    const result = validateAthleticStandardFile(raw);
     const issues = [...result.issues, ...seriesIssues(path, result)];
     const errors = issues.filter((i) => i.severity === "error");
     const warnings = issues.filter((i) => i.severity === "warning");
@@ -114,8 +115,13 @@ program
       console.error(`\n${path}: INVALID — ${errors.length} error(s), ${warnings.length} warning(s)`);
       process.exit(1);
     }
+    // The file's own version, not the tool's. A 0.2.0 file read by a 0.3.0 tool is
+    // valid and is still a 0.2.0 file, and saying otherwise hides that from the reader.
+    const version =
+      (raw as { athleticstandard_version?: string }).athleticstandard_version ??
+      ATHLETIC_STANDARD_VERSION;
     console.log(
-      `${path}: valid Athletic Standard ${ATHLETIC_STANDARD_VERSION} file` +
+      `${path}: valid Athletic Standard ${version} file` +
         (warnings.length > 0 ? ` (${warnings.length} warning(s))` : ""),
     );
   });

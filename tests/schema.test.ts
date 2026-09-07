@@ -79,6 +79,82 @@ describe("schema: happy path", () => {
   });
 });
 
+describe("a benchmark result naming its session (D48)", () => {
+  /** A file whose Fran result was recorded inside a workout session that day. */
+  function withSession(): AthleticStandardFileT {
+    const file = minimalFile();
+    file.hard_signals.push({
+      type: "workout_session",
+      start: "2026-08-09T17:25:00Z",
+      end: "2026-08-09T17:48:00Z",
+      source: "whoop-1",
+      aggregates: { activity: "crossfit", avg_hr_bpm: 168 },
+    });
+    const result = file.hard_signals.find((s) => s.type === "benchmark_result")!;
+    if (result.type === "benchmark_result") {
+      result.session = { source: "whoop-1", start: "2026-08-09T17:25:00Z" };
+    }
+    return file;
+  }
+
+  it("accepts a reference that resolves to a session with that source and start", () => {
+    expect(validateAthleticStandardFile(withSession()).issues).toEqual([]);
+  });
+
+  it("accepts a result with no session — the match may still be waiting", () => {
+    expect(validateAthleticStandardFile(minimalFile()).valid).toBe(true);
+  });
+
+  it("rejects a reference to a start no session has", () => {
+    const file = withSession();
+    const result = file.hard_signals.find((s) => s.type === "benchmark_result")!;
+    if (result.type === "benchmark_result") {
+      result.session = { source: "whoop-1", start: "2026-08-09T19:02:00Z" };
+    }
+    const issues = validateAthleticStandardFile(file).issues;
+    expect(issues.some((i) => i.severity === "error" && i.message.includes("ath link"))).toBe(true);
+  });
+
+  it("rejects a reference to the right start under the wrong source", () => {
+    const file = withSession();
+    const result = file.hard_signals.find((s) => s.type === "benchmark_result")!;
+    if (result.type === "benchmark_result") {
+      result.session = { source: "manual-1", start: "2026-08-09T17:25:00Z" };
+    }
+    expect(validateAthleticStandardFile(file).valid).toBe(false);
+  });
+});
+
+describe("the device index (D51)", () => {
+  it("accepts a device carrying its window and count", () => {
+    const file = minimalFile();
+    file.sources[0]!.devices = [
+      { name: "WHOOP", model: "4.0", from: "2025-06-01", to: "2026-08-09", n: 1582 },
+    ];
+    expect(validateAthleticStandardFile(file).issues).toEqual([]);
+  });
+
+  it("accepts a device with no window, since not every export names one", () => {
+    const file = minimalFile();
+    file.sources[0]!.devices = [{ name: "WHOOP" }];
+    expect(validateAthleticStandardFile(file).valid).toBe(true);
+  });
+
+  it("rejects a count that is not a whole number of records", () => {
+    const file: Record<string, unknown> = minimalFile();
+    (file.sources as Record<string, unknown>[])[0]!.devices = [{ name: "WHOOP", n: 12.5 }];
+    expect(AthleticStandardFile.safeParse(file).success).toBe(false);
+  });
+
+  it("rejects a window written as a timestamp rather than a day", () => {
+    const file: Record<string, unknown> = minimalFile();
+    (file.sources as Record<string, unknown>[])[0]!.devices = [
+      { name: "WHOOP", from: "2025-06-01T00:00:00Z" },
+    ];
+    expect(AthleticStandardFile.safeParse(file).success).toBe(false);
+  });
+});
+
 describe("the two-tier wall", () => {
   it("rejects a hard signal without a source (schema level)", () => {
     const file: Record<string, unknown> = minimalFile();

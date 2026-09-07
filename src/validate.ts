@@ -136,6 +136,11 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
 
   const sourceIds = new Map(file.sources.map((s) => [s.id, s]));
   const benchmarkIds = new Set(file.benchmarks.map((b) => b.id));
+  const sessionKeys = new Set(
+    file.hard_signals
+      .filter((s): s is Extract<typeof s, { type: "workout_session" }> => s.type === "workout_session")
+      .map((s) => `${s.source}|${s.start}`),
+  );
 
   // --- Sources: unique ids ---
   const seenSources = new Set<string>();
@@ -159,6 +164,16 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
     if (sig.type === "benchmark_result") {
       if (!benchmarkIds.has(sig.benchmark)) {
         err(`${path}.benchmark`, `unknown benchmark '${sig.benchmark}'`);
+      }
+      // A session reference names a source and a start, which is what identifies a
+      // workout session (D48). A reference that resolves to nothing is worse than no
+      // reference, because it reads as evidence the file does not hold.
+      if (sig.session && !sessionKeys.has(`${sig.session.source}|${sig.session.start}`)) {
+        err(
+          `${path}.session`,
+          `no workout session from '${sig.session.source}' starting at ${sig.session.start} — ` +
+            `re-link it with \`ath link\`, or drop the reference`,
+        );
       }
     }
     if (sig.type === "series_ref") {

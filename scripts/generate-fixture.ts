@@ -207,20 +207,48 @@ const benchmarkPlan: { id: string; day: number; base: number; note?: string }[] 
   { id: "helen", day: 401, base: 549 },
 ];
 
+// Where the watch recorded a session that day, the attempt happened inside it and
+// the result names it (D48). Not every benchmark day has one, and that is deliberate:
+// a result logged before the watch synced is the ordinary case, so the fixture holds
+// both a linked and an unlinked result for anything reading it to meet.
+const sessionByDay = new Map<string, { start: string; end: string }>();
+for (const sig of hard) {
+  if (sig.type !== "workout_session") continue;
+  sessionByDay.set(sig.start.slice(0, 10), { start: sig.start, end: sig.end });
+}
+
 for (const b of benchmarkPlan) {
   // A bad night before a benchmark costs 4-9%
   const penalty = badNight.has(b.day - 1) || badNight.has(b.day) ? between(1.04, 1.09) : 1.0;
   const duration = Math.round(b.base * penalty * gaussish(1, 0.012));
+  const session = sessionByDay.get(iso(dayAt(b.day)).slice(0, 10));
+  const insideSession = session
+    ? iso(
+        new Date(
+          Math.round(
+            Date.parse(session.start) + (Date.parse(session.end) - Date.parse(session.start)) * 0.6,
+          ),
+        ),
+      )
+    : undefined;
   hard.push({
     type: "benchmark_result",
     benchmark: b.id,
-    recorded_at: at(b.day, 18, 15),
+    recorded_at: insideSession ?? at(b.day, 18, 15),
     source: "manual-1",
     result: { duration_s: duration },
     scaling: "rx",
+    ...(session ? { session: { source: "whoop-1", start: session.start } } : {}),
     ...(b.note ? { note: b.note } : {}),
   });
 }
+
+// The device index (D51). A real import accumulates this while streaming; the fixture
+// derives it from what it just wrote, which is the same thing measured after the fact.
+const whoopDays = hard
+  .filter((s) => s.source === "whoop-1")
+  .map((s) => signalOrder(s).slice(0, 10))
+  .sort();
 
 const file: AthleticStandardFileT = {
   athleticstandard_version: ATHLETIC_STANDARD_VERSION,
@@ -231,6 +259,16 @@ const file: AthleticStandardFileT = {
       kind: "wearable",
       vendor: "whoop",
       detail: "WHOOP 4.0 via CSV export (synthetic fixture data)",
+      devices: [
+        {
+          name: "WHOOP",
+          manufacturer: "WHOOP",
+          model: "4.0",
+          from: whoopDays[0]!,
+          to: whoopDays[whoopDays.length - 1]!,
+          n: whoopDays.length,
+        },
+      ],
     },
     { id: "manual-1", kind: "manual", detail: "Hand-entered benchmark results" },
   ],
