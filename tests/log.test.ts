@@ -321,4 +321,69 @@ describe("ath log — session matching at log time (D53)", () => {
     expect(res.stdout).toContain("no device session that day yet");
     expect(res.stdout).toContain("ath link");
   });
+
+  it("writes the result unlinked when the match is declined", () => {
+    const dir = newAthlete();
+    withSession(dir, `${TODAY}T17:25:00Z`, `${TODAY}T17:48:00Z`);
+    // No terminal to ask on, so nothing is chosen and the result stands alone.
+    ath(["log"], dir, "3 rounds for time\n21 thrusters\n4:41\n");
+    expect(results(read(dir))[0]!.session).toBeUndefined();
+  });
+});
+
+describe("ath log — matches offered again after an import (D53)", () => {
+  const EXPORTS = resolve(here, "fixtures/exports");
+
+  /** Log a result on the day the WHOOP fixture has a workout on. */
+  function loggedBeforeTheWatchSynced(): string {
+    const dir = newAthlete();
+    expect(ath(["log", "--date", "2026-08-09", "--benchmark", "fran"], dir, "21-15-9 thrusters\n4:41\n").code).toBe(0);
+    expect(results(read(dir))[0]!.session).toBeUndefined();
+    return dir;
+  }
+
+  it("names the waiting match and the command that links it", () => {
+    const dir = loggedBeforeTheWatchSynced();
+    const res = ath(["import", join(EXPORTS, "whoop")], dir);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("now have a session on the same day");
+    expect(res.stdout).toMatch(/ath link fran@2026-08-09 \d\d:\d\d/);
+  });
+
+  it("ath link attaches it, and can move a link that went to the wrong session", () => {
+    const dir = loggedBeforeTheWatchSynced();
+    expect(ath(["import", join(EXPORTS, "whoop")], dir).code).toBe(0);
+
+    const sessions = read(dir).hard_signals.filter((s) => s.type === "workout_session");
+    expect(sessions.length).toBeGreaterThan(0);
+    const first = sessions[0] as { start: string; source: string };
+
+    const linked = ath(["link", "fran@2026-08-09", first.start.slice(11, 16)], dir);
+    expect(linked.code).toBe(0);
+    expect(results(read(dir))[0]!.session).toEqual({ source: first.source, start: first.start });
+
+    withSession(dir, "2026-08-09T21:15:00Z", "2026-08-09T21:45:00Z", "manual-watch");
+    const moved = ath(["link", "fran@2026-08-09", "21:15"], dir);
+    expect(moved.code).toBe(0);
+    expect(moved.stdout).toContain("was ");
+    expect(results(read(dir))[0]!.session!.start).toBe("2026-08-09T21:15:00Z");
+  });
+
+  it("says what sessions exist when the one named does not", () => {
+    const dir = loggedBeforeTheWatchSynced();
+    const res = ath(["link", "fran@2026-08-09", "03:00"], dir);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("no session matching");
+  });
+
+  it("stops offering a match once it has been made", () => {
+    const dir = loggedBeforeTheWatchSynced();
+    ath(["import", join(EXPORTS, "whoop")], dir);
+    const sessions = read(dir).hard_signals.filter((s) => s.type === "workout_session");
+    const first = sessions[0] as { start: string };
+    ath(["link", "fran@2026-08-09", first.start.slice(11, 16)], dir);
+
+    const again = ath(["import", join(EXPORTS, "whoop")], dir);
+    expect(again.stdout).not.toContain("now have a session on the same day");
+  });
 });

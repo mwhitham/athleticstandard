@@ -39,6 +39,7 @@ import {
   renderDraft,
   renderQuestion,
   renderWritten,
+  waitingMatches,
 } from "./log.js";
 import { importExport, PooledFileError, UnknownExportError } from "./import/index.js";
 import { silentProgress, terminalProgress } from "./progress.js";
@@ -204,11 +205,39 @@ program
     }
 
     saveFile(athletePath, file);
-    console.log(
-      opts.json
-        ? JSON.stringify(mergeSummaryAsJson(result.summary, result.label), null, 2)
-        : renderMergeSummary(result.summary, result.label),
-    );
+
+    // A result with no session is a match still waiting. Device data usually lands
+    // days after the workout was logged, so every import asks again about the ones
+    // that have become possible (D53).
+    const waiting = waitingMatches(file);
+
+    if (opts.json) {
+      console.log(
+        JSON.stringify(
+          {
+            ...mergeSummaryAsJson(result.summary, result.label),
+            waiting_matches: waiting.map((m) => ({
+              benchmark: m.result.benchmark,
+              recorded_at: m.result.recorded_at,
+              candidates: m.candidates,
+            })),
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    console.log(renderMergeSummary(result.summary, result.label));
+    if (waiting.length === 0) return;
+
+    const linked = await offerWaitingMatches(waiting);
+    if (linked > 0) {
+      const check = validateAthleticStandardFile(file);
+      if (!check.valid) return fail(`that link would make the file invalid, so nothing was written`);
+      saveFile(athletePath, file);
+    }
   });
 
 program
@@ -242,6 +271,14 @@ program
       );
     }
 
+    // A session match is made by asking. Without a terminal and without --yes there
+    // is nobody to ask, so the result is written unlinked and `ath link` or the next
+    // import picks it up (D53).
+    // --dry-run counts, because it is a preview of the interactive run and writes
+    // nothing either way.
+    const confirmable =
+      Boolean(opts.yes) || Boolean(opts.dryRun) || (process.stdout.isTTY === true && !opts.json);
+
     let draft;
     try {
       draft = buildDraft(file, {
@@ -249,6 +286,7 @@ program
         benchmark: opts.benchmark,
         date: opts.date,
         scaling: opts.scaling,
+        confirmable,
       });
     } catch (e) {
       if (e instanceof LogRefusal) return fail((e as Error).message);
@@ -490,6 +528,49 @@ function seriesIssues(path: string, result: ValidationResult): ValidationIssue[]
     }
   }
   return issues;
+}
+
+/**
+ * Offer each waiting match, and return how many were attached.
+ *
+ * With no terminal it prints the candidates and the command that links them, because
+ * a match nobody was told about is a match nobody makes.
+ */
+async function offerWaitingMatches(waiting: ReturnType<typeof waitingMatches>): Promise<number> {
+  const plural = waiting.length === 1 ? "result" : "results";
+  console.log(
+    `\n${waiting.length} ${plural} logged earlier now have a session on the same day:`,
+  );
+
+  let linked = 0;
+  for (const { result, candidates } of waiting) {
+    const day = result.recorded_at.slice(0, 10);
+    const best = candidates[0]!;
+    console.log(`  ${result.benchmark} on ${day} — ${best.label}`);
+
+    if (!process.stdout.isTTY) {
+      console.log(`    ath link ${result.benchmark}@${day} ${best.start.slice(11, 16)}`);
+      continue;
+    }
+
+    const extra = candidates
+      .slice(1, 4)
+      .map((c, i) => `  [${i + 2}] the ${c.start.slice(11, 16)} one`)
+      .join("");
+    const answer = await askOnTerminal(`    link it? [y] yes  [n] no${extra} `);
+    if (answer === null) return linked;
+    const choice = Number(answer);
+    const pick =
+      Number.isInteger(choice) && choice >= 2 && choice <= candidates.length
+        ? candidates[choice - 1]!
+        : /^y(es)?$/i.test(answer)
+          ? best
+          : null;
+    if (!pick) continue;
+    result.session = { source: pick.source, start: pick.start };
+    linked++;
+  }
+  return linked;
 }
 
 interface LogOptions {

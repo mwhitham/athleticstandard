@@ -129,7 +129,12 @@ export interface LogDraft {
   newBenchmarks: BenchmarkT[];
   /** Sessions the benchmark result may have happened in, best first. */
   candidates: SessionCandidate[];
-  /** Which candidate is offered by default. Changed by the extra key on the question. */
+  /**
+   * Which candidate will be saved, or -1 for none.
+   *
+   * A match is made by asking, never by inference (D53), so it starts at -1 wherever
+   * there is nobody to ask. The extra key on the question moves it.
+   */
   chosenCandidate: number;
   /** One block per record, for the summary. */
   blocks: { label: string; value: string }[][];
@@ -189,6 +194,12 @@ export interface LogInput {
   date?: string | undefined;
   scaling?: "rx" | "scaled" | undefined;
   now?: Date | undefined;
+  /**
+   * Whether the one question can be put to somebody. False with no terminal and no
+   * `--yes`, in which case a session match is left for `ath link` or the next import
+   * rather than written on nobody's say-so.
+   */
+  confirmable?: boolean | undefined;
 }
 
 /** Is this an agent's structured input rather than something a person typed? */
@@ -211,7 +222,7 @@ export function buildDraft(file: AthleticStandardFileT, input: LogInput): LogDra
     predictions: [],
     newBenchmarks: [],
     candidates: [],
-    chosenCandidate: 0,
+    chosenCandidate: input.confirmable === false ? -1 : 0,
     blocks: [],
   };
 
@@ -335,8 +346,19 @@ export function buildDraft(file: AthleticStandardFileT, input: LogInput): LogDra
       { label: "score", value: entry.scoreText },
       { label: "name", value: `${id}${existing ? "" : why || "  (new benchmark)"}` },
     ];
-    if (candidates.length > 0) block.push({ label: "session", value: candidates[0]!.label });
-    else block.push({ label: "session", value: "no device session that day yet — link it after your next import" });
+    if (candidates.length === 0) {
+      block.push({
+        label: "session",
+        value: "no device session that day yet — link it after your next import",
+      });
+    } else if (draft.chosenCandidate < 0) {
+      block.push({
+        label: "session",
+        value: `${candidates[0]!.label} — not linked, because there is nobody to confirm it with`,
+      });
+    } else {
+      block.push({ label: "session", value: candidates[0]!.label });
+    }
     block.push({ label: "workout", value: "saved word for word" });
     draft.blocks.push(block);
   }
@@ -533,7 +555,7 @@ export function applyDraft(file: AthleticStandardFileT, draft: LogDraft): void {
     file.benchmarks.push(checked.data);
   }
 
-  const chosen = draft.candidates[draft.chosenCandidate];
+  const chosen = draft.chosenCandidate < 0 ? undefined : draft.candidates[draft.chosenCandidate];
   for (const signal of draft.hard) {
     if (signal.type === "benchmark_result" && chosen && !signal.session) {
       signal.session = { source: chosen.source, start: chosen.start };
@@ -559,15 +581,18 @@ export function renderWritten(draft: LogDraft): string {
   for (const benchmark of draft.newBenchmarks) {
     lines.push(`created benchmark '${benchmark.id}' (scored by ${benchmark.score_type})`);
   }
-  const chosen = draft.candidates[draft.chosenCandidate];
+  const chosen = draft.chosenCandidate < 0 ? undefined : draft.candidates[draft.chosenCandidate];
   for (const signal of draft.hard) {
     if (signal.type === "benchmark_result") {
       lines.push(
         `logged ${describeScore(signal.result)} on '${signal.benchmark}'` +
           (signal.session ? `, linked to the ${signal.session.start.slice(11, 16)} session` : ", not linked to a session"),
       );
-      if (!signal.session && !chosen) {
-        lines.push(`  link it after your next import, or with \`ath link ${signal.benchmark} <time>\``);
+      if (!signal.session) {
+        lines.push(
+          `  link it after your next import, or with ` +
+            `\`ath link ${signal.benchmark}@${signal.recorded_at.slice(0, 10)} <time>\``,
+        );
       }
     } else {
       lines.push(`logged ${describeHard(signal)}`);
@@ -590,7 +615,7 @@ export function draftAsJson(draft: LogDraft, written: boolean): Record<string, u
     soft_signals: draft.soft,
     predictions: draft.predictions,
     session_candidates: draft.candidates,
-    session_chosen: draft.candidates[draft.chosenCandidate] ?? null,
+    session_chosen: (draft.chosenCandidate < 0 ? undefined : draft.candidates[draft.chosenCandidate]) ?? null,
   };
 }
 
