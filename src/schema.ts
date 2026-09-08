@@ -615,11 +615,30 @@ export const Prediction = z.strictObject({
     .string()
     .describe("Must cite specific dates and values from the evidence, not vague trends"),
   evidence_window: z.strictObject({ from: CalendarDate, to: CalendarDate }),
-  model: z.string().describe("Model that produced the prediction"),
+  model: z.string().describe("Model that produced the prediction, e.g. 'claude-opus-4'"),
+  agent: z
+    .string()
+    .optional()
+    .describe(
+      "Program the model ran inside, e.g. 'Claude Code'. Supplied by the agent, and " +
+        "required by `ath log` — a prediction whose author is unknown cannot be weighed later.",
+    ),
+  ath_version: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/, "semver")
+    .optional()
+    .describe(
+      "Version of ath that wrote the prediction. Filled in by the tool, which knows it, " +
+        "and overwritten if the caller supplies one. A file upgraded later does not change it.",
+    ),
   actual: z
     .strictObject({ result: Score, recorded_at: Timestamp })
     .nullable()
-    .default(null),
+    .default(null)
+    .describe(
+      "What happened. `recorded_at` together with this prediction's `benchmark` identifies " +
+        "the benchmark_result in hard_signals, and `ath check` verifies the two agree.",
+    ),
   grade: Grade.nullable().default(null),
   miss_analysis: MissAnalysis.nullable().default(null),
 });
@@ -666,6 +685,7 @@ export type HardSignalT = z.infer<typeof HardSignal>;
 export type SoftSignalT = z.infer<typeof SoftSignal>;
 export type BenchmarkT = z.infer<typeof Benchmark>;
 export type PredictionT = z.infer<typeof Prediction>;
+export type GradeT = z.infer<typeof Grade>;
 export type ScoreT = z.infer<typeof Score>;
 export type PointMeasurementT = z.infer<typeof PointMeasurement>;
 export type SoftSignalTypeT = z.infer<typeof SoftSignalType>;

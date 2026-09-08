@@ -71,6 +71,25 @@ function minimalFile(): AthleticStandardFileT {
   };
 }
 
+/**
+ * Record what happened, the way the tool does: the result into `hard_signals`, and
+ * the prediction's `actual` pointing at it by benchmark and instant (D64).
+ */
+function recordActual(
+  file: AthleticStandardFileT,
+  score: { duration_s: number },
+  at = "2026-08-10T17:00:00Z",
+): void {
+  file.hard_signals.push({
+    type: "benchmark_result",
+    benchmark: "fran",
+    recorded_at: at,
+    source: "manual-1",
+    result: score,
+  });
+  file.predictions[0]!.actual = { result: score, recorded_at: at };
+}
+
 describe("schema: happy path", () => {
   it("accepts a well-formed file", () => {
     const result = validateAthleticStandardFile(minimalFile());
@@ -301,8 +320,8 @@ describe("prediction ledger honesty", () => {
 
   it("flags a miss analysis with no causes that is not marked unexplained", () => {
     const file = minimalFile();
+    recordActual(file, { duration_s: 320 });
     const p = file.predictions[0]!;
-    p.actual = { result: { duration_s: 320 }, recorded_at: "2026-08-10T17:00:00Z" };
     p.grade = { signed_error: -45, abs_error_pct: 16.4, in_range: false };
     p.miss_analysis = {
       direction: "slower",
@@ -336,8 +355,8 @@ describe("prediction ledger honesty", () => {
 
   it("accepts a fully graded miss with an honest analysis", () => {
     const file = minimalFile();
+    recordActual(file, { duration_s: 320 });
     const p = file.predictions[0]!;
-    p.actual = { result: { duration_s: 320 }, recorded_at: "2026-08-10T17:00:00Z" };
     p.grade = { signed_error: -45, abs_error_pct: 16.4, in_range: false };
     p.miss_analysis = {
       direction: "slower",
@@ -354,5 +373,69 @@ describe("prediction ledger honesty", () => {
     const result = validateAthleticStandardFile(file);
     expect(result.issues.filter((i) => i.severity === "error")).toEqual([]);
     expect(result.valid).toBe(true);
+  });
+});
+
+/**
+ * The prediction, the result and the session describe one attempt, and two links
+ * join them: prediction to result, result to session (D64).
+ */
+describe("a graded prediction pointing at its result", () => {
+  it("accepts a grade whose actual matches a result in the file", () => {
+    const file = minimalFile();
+    recordActual(file, { duration_s: 320 });
+    file.predictions[0]!.grade = { signed_error: -45, abs_error_pct: 16.4, in_range: false };
+    expect(validateAthleticStandardFile(file).valid).toBe(true);
+  });
+
+  it("refuses a grade whose result is not in the file", () => {
+    const file = minimalFile();
+    const p = file.predictions[0]!;
+    p.actual = { result: { duration_s: 320 }, recorded_at: "2026-08-10T17:00:00Z" };
+    p.grade = { signed_error: -45, abs_error_pct: 16.4, in_range: false };
+    const result = validateAthleticStandardFile(file);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((i) => i.message.includes("no benchmark_result for 'fran'"))).toBe(true);
+  });
+
+  it("refuses a grade whose score disagrees with the result it points at", () => {
+    const file = minimalFile();
+    recordActual(file, { duration_s: 320 });
+    file.predictions[0]!.actual!.result = { duration_s: 299 };
+    file.predictions[0]!.grade = { signed_error: -24, abs_error_pct: 8, in_range: false };
+    const result = validateAthleticStandardFile(file);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((i) => i.path === "predictions.0.actual.result")).toBe(true);
+  });
+
+  it("still accepts an ungraded prediction, which points at nothing yet", () => {
+    expect(validateAthleticStandardFile(minimalFile()).valid).toBe(true);
+  });
+});
+
+describe("who made a prediction (D66)", () => {
+  it("records the agent, the model and the version of ath that wrote it", () => {
+    const file = minimalFile();
+    Object.assign(file.predictions[0]!, {
+      agent: "Claude Code",
+      model: "claude-opus-4",
+      ath_version: "0.3.0",
+    });
+    const parsed = AthleticStandardFile.safeParse(file);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data!.predictions[0]!.agent).toBe("Claude Code");
+    expect(parsed.data!.predictions[0]!.ath_version).toBe("0.3.0");
+  });
+
+  it("loads a prediction from before those fields existed", () => {
+    const parsed = AthleticStandardFile.safeParse(minimalFile());
+    expect(parsed.success).toBe(true);
+    expect(parsed.data!.predictions[0]!.agent).toBeUndefined();
+  });
+
+  it("refuses a version that is not a version", () => {
+    const file = minimalFile();
+    Object.assign(file.predictions[0]!, { ath_version: "latest" });
+    expect(AthleticStandardFile.safeParse(file).success).toBe(false);
   });
 });

@@ -2265,10 +2265,20 @@
           },
           "model": {
             "type": "string",
-            "description": "Model that produced the prediction"
+            "description": "Model that produced the prediction, e.g. 'claude-opus-4'"
+          },
+          "agent": {
+            "description": "Program the model ran inside, e.g. 'Claude Code'. Supplied by the agent, and required by `ath log` — a prediction whose author is unknown cannot be weighed later.",
+            "type": "string"
+          },
+          "ath_version": {
+            "description": "Version of ath that wrote the prediction. Filled in by the tool, which knows it, and overwritten if the caller supplies one. A file upgraded later does not change it.",
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
           },
           "actual": {
             "default": null,
+            "description": "What happened. `recorded_at` together with this prediction's `benchmark` identifies the benchmark_result in hard_signals, and `ath check` verifies the two agree.",
             "anyOf": [
               {
                 "type": "object",
