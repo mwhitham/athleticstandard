@@ -40,7 +40,8 @@ describe("ath init", () => {
     expect(ath(["init", "-y"], dir).code).toBe(0);
     const second = ath(["init", "-y"], dir);
     expect(second.code).toBe(1);
-    expect(second.stdout).toContain("refusing to overwrite");
+    expect(second.stdout).toContain("already exists");
+    expect(second.stdout).toContain("--file");
   });
 });
 

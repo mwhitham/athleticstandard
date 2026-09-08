@@ -27,11 +27,18 @@ import { rmssdFromBeats, rmssdFromIntervals, type Beat } from "../hrv.js";
 import {
   countSkip,
   countSkipWithExample,
+  deviceIndexKey,
   emptyPayload,
+  observeDevice,
   writerSlug,
   type ImportPayload,
   type SourceBook,
 } from "./merge.js";
+
+/** Note which device wrote a record, so the merge can count it if it is new (D51). */
+function attribute(payload: ImportPayload, signal: HardSignalT, writer: Writer): void {
+  if (writer.deviceKey) payload.deviceOf.set(signal, writer.deviceKey);
+}
 import { beatsFromEcg, parseEcgCsv } from "./ecg.js";
 import { parseGpx, summarizeRoute, type RouteSummary } from "./routes.js";
 import { isEcgEntry, isRouteEntry, readEntries, type DetectedExport } from "./detect.js";
@@ -176,6 +183,8 @@ interface SleepFragment {
   end: string;
   value: string;
   source: string;
+  /** The device index entry this fragment came from, when the export named one. */
+  deviceKey?: string;
 }
 
 interface BeatWindow {
@@ -247,41 +256,66 @@ export function vendorOf(writer: string, device?: DeviceT): string {
   return slug.split("-")[0] ?? "unknown";
 }
 
+/** Who wrote a record: the source it belongs to, and its entry in the device index. */
+interface Writer {
+  source: string;
+  /** Absent when the export named no device, which many Apple records do not. */
+  deviceKey?: string;
+}
+
 /**
  * Source ids for the writers met while parsing, resolved once per distinct
  * (name, device) pair. An export holds a million records from a dozen writers, so the
  * lookup has to be a map hit, not a search.
+ *
+ * It also builds the device index (D51). Every record passes through here, which is
+ * the only place that sees a writer, a device, and a date at the same time.
  */
 class WriterCache {
-  private readonly ids = new Map<string, string>();
+  private readonly writers = new Map<string, Writer>();
   private readonly devices = new Map<string, DeviceT | undefined>();
 
-  constructor(private readonly sources: SourceBook) {}
+  constructor(
+    private readonly sources: SourceBook,
+    private readonly payload: ImportPayload,
+  ) {}
 
-  resolve(attrs: Record<string, string>): string {
+  resolve(attrs: Record<string, string>): Writer {
     const writer = (attrs.sourceName ?? "").trim() || "Unknown";
     const rawDevice = attrs.device ?? "";
     const key = `${writer}\u0000${rawDevice}`;
-    const hit = this.ids.get(key);
-    if (hit) return hit;
+    let hit = this.writers.get(key);
 
-    let id: string;
-    if (HAND_ENTERED_WRITERS.has(writer.toLowerCase())) {
-      id = this.sources.manual();
-    } else {
-      let device = this.devices.get(rawDevice);
-      if (!this.devices.has(rawDevice)) {
-        device = parseAppleDevice(rawDevice);
-        this.devices.set(rawDevice, device);
+    if (!hit) {
+      if (HAND_ENTERED_WRITERS.has(writer.toLowerCase())) {
+        hit = { source: this.sources.manual() };
+      } else {
+        let device = this.devices.get(rawDevice);
+        if (!this.devices.has(rawDevice)) {
+          device = parseAppleDevice(rawDevice);
+          this.devices.set(rawDevice, device);
+        }
+        const source = this.sources.forWriter({
+          writer,
+          vendor: vendorOf(writer, device),
+          ...(device ? { device } : {}),
+        });
+        hit = { source, ...(device ? { deviceKey: deviceIndexKey(source, device) } : {}) };
       }
-      id = this.sources.forWriter({
-        writer,
-        vendor: vendorOf(writer, device),
-        ...(device ? { device } : {}),
-      });
+      this.writers.set(key, hit);
     }
-    this.ids.set(key, id);
-    return id;
+
+    // Widened on every record, not only the first: the window is what shows where one
+    // watch stopped and the next began. Apple's dates start `YYYY-MM-DD` in the
+    // wearer's own zone, so the local day is the first ten characters.
+    if (hit.deviceKey) {
+      const device = this.devices.get(rawDevice);
+      const onDay = (attrs.startDate ?? "").slice(0, 10);
+      if (device && /^\d{4}-\d{2}-\d{2}$/.test(onDay)) {
+        observeDevice(this.payload, hit.source, device, onDay);
+      }
+    }
+    return hit;
   }
 }
 
@@ -407,13 +441,13 @@ export async function importAppleHealth(
     bytes += typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
     progress.update(bytes);
   });
-  await parseAppleXml(stream, acc, payload, new WriterCache(sources));
+  await parseAppleXml(stream, acc, payload, new WriterCache(sources, payload));
   progress.finish();
 
   payload.hardSignals.push(...acc.points);
   await attachRouteSplits(detected, acc.workouts, payload, progress);
   payload.hardSignals.push(...acc.workouts);
-  payload.hardSignals.push(...buildSleepSessions(acc.sleepFragments));
+  payload.hardSignals.push(...buildSleepSessions(acc.sleepFragments, payload));
 
   await importEcgs(detected, sources, payload, progress);
 
@@ -485,7 +519,7 @@ function parseAppleXml(
     let currentWorkout: {
       start: string;
       end: string;
-      source: string;
+      writer: Writer;
       segments: { label: string; duration_s?: number }[];
       aggregates: Record<string, unknown>;
     } | null = null;
@@ -562,7 +596,7 @@ function parseAppleXml(
           }
           const energy = Number(attrs.totalEnergyBurned);
           if (Number.isFinite(energy) && energy > 0) aggregates.energy_kcal = round(energy);
-          currentWorkout = { start, end, source: writers.resolve(attrs), segments: [], aggregates };
+          currentWorkout = { start, end, writer: writers.resolve(attrs), segments: [], aggregates };
           break;
         }
 
@@ -600,14 +634,16 @@ function parseAppleXml(
         currentBeatWindow = null;
       }
       if (name === "Workout" && currentWorkout) {
-        acc.workouts.push({
+        const session: HardSignalT = {
           type: "workout_session",
           start: currentWorkout.start,
           end: currentWorkout.end,
-          source: currentWorkout.source,
+          source: currentWorkout.writer.source,
           aggregates: currentWorkout.aggregates as never,
           ...(currentWorkout.segments.length > 0 ? { segments: currentWorkout.segments as never } : {}),
-        });
+        };
+        attribute(payload, session, currentWorkout.writer);
+        acc.workouts.push(session);
         currentWorkout = null;
       }
     });
@@ -627,11 +663,13 @@ function parseAppleXml(
           countSkip(payload, "sleep records with an unreadable date");
           return;
         }
+        const writer = writers.resolve(attrs);
         acc.sleepFragments.push({
           start: startDate,
           end: endDate,
           value: attrs.value ?? "",
-          source: writers.resolve(attrs),
+          source: writer.source,
+          ...(writer.deviceKey ? { deviceKey: writer.deviceKey } : {}),
         });
         return;
       }
@@ -660,13 +698,16 @@ function parseAppleXml(
           countSkip(payload, "measurements outside a plausible range");
           return;
         }
-        acc.points.push({
+        const writer = writers.resolve(attrs);
+        const reading = {
           type: point.type,
           value: round(converted),
           unit: POINT_MEASUREMENT_UNITS[point.type],
           recorded_at: startDate,
-          source: writers.resolve(attrs),
-        } as HardSignalT);
+          source: writer.source,
+        } as HardSignalT;
+        attribute(payload, reading, writer);
+        acc.points.push(reading);
         return;
       }
 
@@ -690,7 +731,7 @@ function parseAppleXml(
           );
           return;
         }
-        const source = writers.resolve(attrs);
+        const source = writers.resolve(attrs).source;
         const key = `${series.quantity}|${source}`;
         const bucket =
           acc.series.get(key) ?? { quantity: series.quantity, source, byDay: new Map<string, Sample[]>() };
@@ -895,13 +936,20 @@ async function importEcgs(
  * observations of it, not one, and folding their stages together would produce a
  * night nobody measured (D31, D45).
  */
-export function buildSleepSessions(fragments: SleepFragment[]): HardSignalT[] {
+export function buildSleepSessions(
+  fragments: SleepFragment[],
+  payload?: ImportPayload,
+): HardSignalT[] {
   const bySource = new Map<string, SleepFragment[]>();
   for (const f of fragments) bySource.set(f.source, [...(bySource.get(f.source) ?? []), f]);
-  return [...bySource].flatMap(([sourceId, own]) => clusterNights(own, sourceId));
+  return [...bySource].flatMap(([sourceId, own]) => clusterNights(own, sourceId, payload));
 }
 
-function clusterNights(fragments: SleepFragment[], sourceId: string): HardSignalT[] {
+function clusterNights(
+  fragments: SleepFragment[],
+  sourceId: string,
+  payload?: ImportPayload,
+): HardSignalT[] {
   if (fragments.length === 0) return [];
 
   const sorted = [...fragments].sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
@@ -962,14 +1010,20 @@ function clusterNights(fragments: SleepFragment[], sourceId: string): HardSignal
       aggregates.efficiency_pct = Math.min(100, Math.round((asleep / inBed) * 1000) / 10);
     }
 
-    return [
-      {
-        type: "sleep_session",
-        start,
-        end,
-        source: sourceId,
-        aggregates: aggregates as never,
-      } as HardSignalT,
-    ];
+    const night = {
+      type: "sleep_session",
+      start,
+      end,
+      source: sourceId,
+      aggregates: aggregates as never,
+    } as HardSignalT;
+
+    // A night is assembled from many stage records, so it belongs to whichever device
+    // wrote the first of them. A night split across two devices is rare enough, and
+    // shallow enough a miss, that counting it twice would be the worse answer.
+    const deviceKey = cluster.find((f) => f.deviceKey)?.deviceKey;
+    if (payload && deviceKey) payload.deviceOf.set(night, deviceKey);
+
+    return [night];
   });
 }

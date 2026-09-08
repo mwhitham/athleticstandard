@@ -136,6 +136,16 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
 
   const sourceIds = new Map(file.sources.map((s) => [s.id, s]));
   const benchmarkIds = new Set(file.benchmarks.map((b) => b.id));
+  const sessionKeys = new Set(
+    file.hard_signals
+      .filter((s): s is Extract<typeof s, { type: "workout_session" }> => s.type === "workout_session")
+      .map((s) => `${s.source}|${s.start}`),
+  );
+  const resultsByKey = new Map(
+    file.hard_signals
+      .filter((s): s is Extract<typeof s, { type: "benchmark_result" }> => s.type === "benchmark_result")
+      .map((s) => [`${s.benchmark}|${s.recorded_at}`, s]),
+  );
 
   // --- Sources: unique ids ---
   const seenSources = new Set<string>();
@@ -159,6 +169,16 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
     if (sig.type === "benchmark_result") {
       if (!benchmarkIds.has(sig.benchmark)) {
         err(`${path}.benchmark`, `unknown benchmark '${sig.benchmark}'`);
+      }
+      // A session reference names a source and a start, which is what identifies a
+      // workout session (D48). A reference that resolves to nothing is worse than no
+      // reference, because it reads as evidence the file does not hold.
+      if (sig.session && !sessionKeys.has(`${sig.session.source}|${sig.session.start}`)) {
+        err(
+          `${path}.session`,
+          `no workout session from '${sig.session.source}' starting at ${sig.session.start} — ` +
+            `re-link it with \`ath link\`, or drop the reference`,
+        );
       }
     }
     if (sig.type === "series_ref") {
@@ -224,6 +244,10 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
   const scoreKeyFor = { time: "duration_s", reps: "reps", load: "weight_kg" } as const;
   const benchmarkById = new Map(file.benchmarks.map((b) => [b.id, b]));
 
+  /** Field by field, since a score is an object and key order says nothing. */
+  const sameScore = (a: Record<string, unknown>, b: Record<string, unknown>): boolean =>
+    Object.values(scoreKeyFor).every((key) => a[key] === b[key]);
+
   const checkScoreMatchesBenchmark = (
     path: string,
     benchmarkId: string,
@@ -272,6 +296,30 @@ export function semanticIssues(file: AthleticStandardFileT): ValidationIssue[] {
         `${path}.actual`,
         "actual was recorded before the prediction was made — predictions must precede attempts",
       );
+    }
+
+    // Three records describe one attempt: the prediction, the result, and the session
+    // the wearable recorded. A prediction's `actual` names its result by benchmark and
+    // instant, and the result names its session, so the chain can be walked from any
+    // end. A copy of a score that points at nothing goes stale the first time the
+    // result is corrected, and nothing says so (D64).
+    if (p.actual) {
+      const result = resultsByKey.get(`${p.benchmark}|${p.actual.recorded_at}`);
+      if (!result) {
+        err(
+          `${path}.actual`,
+          `no benchmark_result for '${p.benchmark}' at ${p.actual.recorded_at} — a graded ` +
+            `prediction has to point at the result it was graded against. Re-record it with ` +
+            `\`ath grade ${p.benchmark} --actual <score>\`, or drop the actual.`,
+        );
+      } else if (!sameScore(result.result, p.actual.result)) {
+        err(
+          `${path}.actual.result`,
+          `this prediction was graded against a different score than the result it points at ` +
+            `holds — one of the two has been edited since. Re-record it with ` +
+            `\`ath grade ${p.benchmark} --actual <score>\`.`,
+        );
+      }
     }
     if (p.grade && !p.actual) {
       err(`${path}.grade`, "a grade exists but no actual result is recorded");

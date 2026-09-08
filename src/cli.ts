@@ -18,20 +18,47 @@ import {
   type ValidationIssue,
   type ValidationResult,
 } from "./validate.js";
-import { findFile, loadFile, loadFileRaw, saveFile, DEFAULT_FILENAME } from "./file.js";
+import { findFile, loadFile, loadFileRaw, saveFile, DEFAULT_FILENAME, FILE_SUFFIX } from "./file.js";
 import { SEED_BENCHMARKS } from "./benchmarks.js";
-import { renderStats } from "./stats.js";
+import { renderStats, statsAsJson } from "./stats.js";
 import { checkSeriesRef, SERIES_DIR, seriesDirectory } from "./series.js";
 import {
+  coverageOfDays,
   matchingRefs,
   readRawDays,
   renderDaySummaries,
   renderRawDays,
   summarizeDays,
 } from "./seriesview.js";
+import {
+  applyDraft,
+  buildDraft,
+  draftAsJson,
+  linkResult,
+  LogRefusal,
+  renderDraft,
+  renderQuestion,
+  renderWritten,
+  today,
+  waitingMatches,
+  type Confirm,
+} from "./log.js";
+import { evidenceFor } from "./context.js";
+import { benchmarkOrRefuse, evidenceAsJson, PredictRefusal, renderEvidence } from "./predict.js";
+import {
+  analysisAsJson,
+  applyGrade,
+  attachAnalysis,
+  gradeAsJson,
+  GradeRefusal,
+  planGrade,
+  renderGrade,
+} from "./grade.js";
+import { bareGuide, EXAMPLES, GROUPS, HELP_FOOTER } from "./help.js";
 import { importExport, PooledFileError, UnknownExportError } from "./import/index.js";
 import { silentProgress, terminalProgress } from "./progress.js";
-import { renderMergeSummary } from "./import/merge.js";
+import { AGENT_DIRS, installSkill, skillSource } from "./skill.js";
+import { mergeSummaryAsJson, renderMergeSummary } from "./import/merge.js";
 
 const program = new Command();
 
@@ -41,25 +68,36 @@ program
     "Athletic Standard — an open, local-first format for training and recovery data " +
       "that keeps measured signals apart from self-reported ones.",
   )
-  .version(ATHLETIC_STANDARD_VERSION);
+  .version(ATHLETIC_STANDARD_VERSION)
+  .addHelpText("after", HELP_FOOTER)
+  .action(() => {
+    console.log(bareGuide(process.cwd()));
+  });
 
 program
   .command("init")
-  .description(`create a new ${DEFAULT_FILENAME} in the current directory`)
-  .option("--name <name>", "athlete name")
-  .option("--birth-year <year>", "birth year")
-  .option("--sex <sex>", "male | female")
-  .option("--units <units>", "metric | imperial (display preference only)", "metric")
-  .option("--file <path>", "output path", DEFAULT_FILENAME)
-  .option("-y, --yes", "non-interactive: use provided flags and defaults")
+  .helpGroup(GROUPS.setUp)
+  .description(`create a new ${DEFAULT_FILENAME} here, with the well-known benchmarks defined`)
+  .addHelpText("after", EXAMPLES.init!)
+  .option("--name <name>", "your name, so the file says whose it is")
+  .option("--birth-year <year>", "birth year, which some readings are read against")
+  .option("--sex <sex>", "male | female, for the same reason")
+  .option("--units <units>", "metric | imperial — display only; stored values are always metric", "metric")
+  .option("--file <path>", "write somewhere other than the default name", DEFAULT_FILENAME)
+  .option("-y, --yes", "skip the questions and use the flags and defaults")
+  .option("--no-skill", "do not install the agent skill, even if an agent folder is here")
+  .option("--json", "structured output, for an agent rather than a person")
   .action(async (opts) => {
     const outPath = resolve(process.cwd(), opts.file);
     if (existsSync(outPath)) {
-      fail(`${outPath} already exists — refusing to overwrite`);
+      fail(
+        `${outPath} already exists, and overwriting it would lose whatever is in it. ` +
+          `Read it with \`ath stats\`, or start a second file with \`--file <name>${FILE_SUFFIX}\`.`,
+      );
     }
 
     let { name, birthYear, sex } = { name: opts.name, birthYear: opts.birthYear, sex: opts.sex };
-    if (!opts.yes) {
+    if (!opts.yes && !opts.json) {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       name = name ?? ((await rl.question("Name (optional): ")) || undefined);
       birthYear = birthYear ?? ((await rl.question("Birth year (optional): ")) || undefined);
@@ -85,47 +123,54 @@ program
     const result = validateAthleticStandardFile(file);
     if (!result.valid) {
       fail(
-        `refusing to write an invalid file:\n` +
-          result.issues.map((i) => `  ${i.path}: ${i.message}`).join("\n"),
+        `refusing to write an invalid file — nothing was created:\n` +
+          result.issues.map((i) => `  ${i.path}: ${i.message}`).join("\n") +
+          `\nCheck the values you passed, and try again.`,
       );
     }
 
     saveFile(outPath, file);
+
+    // The skill goes wherever an agent will look for it, which is the agent's own
+    // folder. No folder means no agent here, which is an ordinary way to use this.
+    const installed = opts.skill === false ? [] : installSkill(process.cwd());
+
+    if (opts.json) {
+      console.log(
+        JSON.stringify(
+          {
+            created: outPath,
+            athleticstandard_version: ATHLETIC_STANDARD_VERSION,
+            benchmarks: SEED_BENCHMARKS.map((b) => b.id),
+            skill_installed: installed,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
     console.log(`created ${outPath}`);
     console.log(`  seeded ${SEED_BENCHMARKS.length} benchmarks: ${SEED_BENCHMARKS.map((b) => b.id).join(", ")}`);
+    for (const path of installed) console.log(`  installed the agent skill into ${path}`);
+    if (opts.skill !== false && installed.length === 0) {
+      console.log(
+        `  no agent folder here (${AGENT_DIRS.join(", ")}), so the skill was not installed.`,
+      );
+      console.log(`  copy it from ${skillSource()} whenever you want it.`);
+    }
     console.log(`  next: \`ath import <export-file>\` to load device data`);
   });
 
 program
-  .command("check")
-  .description("validate a file against the schema and semantic rules")
-  .argument("[file]", "path to the file (default: the one in this directory)")
-  .action((fileArg) => {
-    const path = findOrFail(fileArg);
-    const result = validateAthleticStandardFile(loadFileRaw(path));
-    const issues = [...result.issues, ...seriesIssues(path, result)];
-    const errors = issues.filter((i) => i.severity === "error");
-    const warnings = issues.filter((i) => i.severity === "warning");
-
-    for (const i of errors) console.error(`error  ${i.path}: ${i.message}`);
-    for (const i of warnings) console.warn(`warn   ${i.path}: ${i.message}`);
-
-    if (errors.length > 0) {
-      console.error(`\n${path}: INVALID — ${errors.length} error(s), ${warnings.length} warning(s)`);
-      process.exit(1);
-    }
-    console.log(
-      `${path}: valid Athletic Standard ${ATHLETIC_STANDARD_VERSION} file` +
-        (warnings.length > 0 ? ` (${warnings.length} warning(s))` : ""),
-    );
-  });
-
-program
   .command("import")
+  .helpGroup(GROUPS.getIn)
   .description("load an Apple Health, WHOOP, or Oura export into the file")
+  .addHelpText("after", EXAMPLES.import!)
   .argument("<path>", "the export: a zip, a folder, an export.xml, or a CSV")
-  .option("--file <path>", "athlete file to import into (default: the one in this directory)")
-  .action(async (exportPath: string, opts: { file?: string }) => {
+  .option("--file <path>", "import into a file other than the one in this folder")
+  .option("--json", "structured output, for an agent rather than a person")
+  .action(async (exportPath: string, opts: { file?: string; json?: boolean }) => {
     const athletePath = findOrFail(opts.file);
     let file: AthleticStandardFileT;
     try {
@@ -136,7 +181,7 @@ program
 
     // The bar draws on stderr and only when a person is watching. Piped output and
     // tests get the summary alone.
-    const progress = process.stderr.isTTY ? terminalProgress() : silentProgress;
+    const progress = process.stderr.isTTY && !opts.json ? terminalProgress() : silentProgress;
     let result;
     try {
       result = await importExport(file, athletePath, resolve(process.cwd(), exportPath), progress);
@@ -144,7 +189,11 @@ program
       progress.finish();
       if (e instanceof UnknownExportError) return fail((e as Error).message);
       if (e instanceof PooledFileError) return fail((e as Error).message);
-      return fail(`could not read that export: ${(e as Error).message}`);
+      return fail(
+        `could not read that export: ${(e as Error).message}\n` +
+          `  Point at the zip as it was downloaded, the folder it unzips to, an export.xml, ` +
+          `or a vendor CSV. Nothing was written.`,
+      );
     }
 
     // Refuse to write a file the import would have made invalid.
@@ -153,24 +202,417 @@ program
       const first = validation.issues.filter((i) => i.severity === "error").slice(0, 5);
       return fail(
         `import would produce an invalid file, so nothing was written:\n` +
-          first.map((i) => `  ${i.path}: ${i.message}`).join("\n"),
+          first.map((i) => `  ${i.path}: ${i.message}`).join("\n") +
+          `\nRun \`ath check\` to see the file as it stands. This is a bug in the importer, ` +
+          `not something you did.`,
       );
     }
 
     saveFile(athletePath, file);
+
+    // A result with no session is a match still waiting. Device data usually lands
+    // days after the workout was logged, so every import asks again about the ones
+    // that have become possible (D53).
+    const waiting = waitingMatches(file);
+
+    if (opts.json) {
+      console.log(
+        JSON.stringify(
+          {
+            ...mergeSummaryAsJson(result.summary, result.label),
+            waiting_matches: waiting.map((m) => ({
+              benchmark: m.result.benchmark,
+              recorded_at: m.result.recorded_at,
+              candidates: m.candidates,
+            })),
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
     console.log(renderMergeSummary(result.summary, result.label));
+    if (waiting.length === 0) return;
+
+    const linked = await offerWaitingMatches(waiting);
+    if (linked > 0) {
+      const check = validateAthleticStandardFile(file);
+      if (!check.valid) {
+        return fail(
+          `that link would make the file invalid, so nothing was written. ` +
+            `Run \`ath check\` to see what is wrong with the file first.`,
+        );
+      }
+      saveFile(athletePath, file);
+    }
+  });
+
+program
+  .command("log")
+  .helpGroup(GROUPS.getIn)
+  .description("write something down: a workout result, a measurement, or how you felt")
+  .addHelpText("after", EXAMPLES.log!)
+  .argument("[entry...]", "the entry, unquoted. Leave it off to paste one, ending with Ctrl-D")
+  .option("--benchmark <name>", "name the workout yourself, instead of naming it after the day")
+  .option("--date <date>", "the day it happened, as YYYY-MM-DD. Leave it off for today")
+  .option("--scaling <rx|scaled>", "whether the workout was done as written, or scaled")
+  .option("--file <path>", "write to a file other than the one in this folder")
+  .option("-y, --yes", "write it without asking — for scripts, and when you are sure")
+  .option("--again", "record a second result on a day that already has one")
+  .option("--dry-run", "show what would be written, and write nothing")
+  .option("--json", "structured output, for an agent rather than a person")
+  .action(async (words: string[], opts: LogOptions) => {
+    const path = findOrFail(opts.file);
+    let file: AthleticStandardFileT;
+    try {
+      file = loadFile(path);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+
+    // No words on the line means the entry is being pasted. A workout runs to several
+    // lines and often carries a `"` for the box height, and a shell breaks on both,
+    // so reading the paste is the only way to take one unquoted (D58).
+    const text = words.length > 0 ? words.join(" ") : await readStdin();
+    if (text.trim() === "") {
+      return fail(
+        `nothing to log. Type it on the line — \`ath log slept badly, about 5 hours\` — or run ` +
+          `\`ath log\` on its own and paste it, ending with Ctrl-D.`,
+      );
+    }
+
+    let draft;
+    try {
+      draft = buildDraft(file, {
+        text,
+        benchmark: opts.benchmark,
+        date: opts.date,
+        scaling: opts.scaling,
+        again: opts.again,
+        confirm: whoAnswers(opts),
+      });
+    } catch (e) {
+      if (e instanceof LogRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    if (draft.blocks.length === 0) {
+      return fail(
+        `nothing in that could be logged. Try a shorter entry — ` +
+          `\`ath log slept badly, about 5 hours\` — and see \`ath log --help\` for what it reads.`,
+      );
+    }
+
+    // The summary, then one question. Every guess the tool made is on the screen
+    // before anything reaches the file (D56).
+    if (!opts.json) console.log(renderDraft(draft));
+
+    if (opts.dryRun) {
+      // The question is shown rather than asked, so a preview shows the whole shape
+      // including the extra key a second candidate session adds.
+      if (opts.json) console.log(JSON.stringify(draftAsJson(draft, false), null, 2));
+      else console.log(`\n${renderQuestion(draft)}\nnothing written (--dry-run)`);
+      return;
+    }
+
+    if (!opts.yes && !opts.json && process.stdout.isTTY) {
+      const answer = await askOnTerminal(`\n${renderQuestion(draft)} `);
+      if (answer === null) {
+        return fail(
+          `there is no terminal to ask on, so nothing was written. ` +
+            `Pass --yes to write it without the question, or --dry-run to see what it would be.`,
+        );
+      }
+      const choice = Number(answer);
+      if (Number.isInteger(choice) && choice >= 2 && choice <= draft.candidates.length) {
+        draft.chosenCandidate = choice - 1;
+      } else if (!/^y(es)?$/i.test(answer)) {
+        console.log("nothing written");
+        return;
+      }
+    }
+
+    try {
+      applyDraft(file, draft);
+    } catch (e) {
+      if (e instanceof LogRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    const validation = validateAthleticStandardFile(file);
+    if (!validation.valid) {
+      const first = validation.issues.filter((i) => i.severity === "error").slice(0, 5);
+      return fail(
+        `that would make the file invalid, so nothing was written:\n` +
+          first.map((i) => `  ${i.path}: ${i.message}`).join("\n"),
+      );
+    }
+
+    saveFile(path, file);
+    console.log(opts.json ? JSON.stringify(draftAsJson(draft, true), null, 2) : `\n${renderWritten(draft)}`);
+  });
+
+program
+  .command("link")
+  .helpGroup(GROUPS.getIn)
+  .description("attach a workout result to the device session it happened in")
+  .addHelpText("after", EXAMPLES.link!)
+  .argument("<result>", "the benchmark, e.g. `fran`, or `fran@2026-09-04` when there are several")
+  .argument("<session>", "the session's start: `17:25`, a full timestamp, or `whoop-1@<timestamp>`")
+  .option("--file <path>", "change a file other than the one in this folder")
+  .option("--json", "structured output, for an agent rather than a person")
+  .action((result: string, session: string, opts: { file?: string; json?: boolean }) => {
+    const path = findOrFail(opts.file);
+    let file: AthleticStandardFileT;
+    try {
+      file = loadFile(path);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+
+    let outcome;
+    try {
+      outcome = linkResult(file, result, session);
+    } catch (e) {
+      if (e instanceof LogRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    const validation = validateAthleticStandardFile(file);
+    if (!validation.valid) {
+      return fail(
+        `that link would make the file invalid, so nothing was written. ` +
+          `Run \`ath check\` to see what is wrong with the file first.`,
+      );
+    }
+    saveFile(path, file);
+
+    if (opts.json) {
+      console.log(JSON.stringify(outcome, null, 2));
+      return;
+    }
+    console.log(
+      `${outcome.benchmark} on ${outcome.recordedAt.slice(0, 10)} is now linked to the ` +
+        `${outcome.session.start.slice(11, 16)} session on ${outcome.session.source}` +
+        (outcome.replaced ? ` (was ${outcome.replaced.start.slice(11, 16)} on ${outcome.replaced.source})` : ""),
+    );
+  });
+
+program
+  .command("check")
+  .helpGroup(GROUPS.read)
+  .description("make sure the file still obeys every rule of the format")
+  .addHelpText("after", EXAMPLES.check!)
+  .argument("[file]", "the file to check (default: the one in this folder)")
+  .option("--json", "structured output, for an agent rather than a person")
+  .action((fileArg, opts: { json?: boolean }) => {
+    const path = findOrFail(fileArg);
+    const raw = loadFileRaw(path);
+    const result = validateAthleticStandardFile(raw);
+    const issues = [...result.issues, ...seriesIssues(path, result)];
+    const errors = issues.filter((i) => i.severity === "error");
+    const warnings = issues.filter((i) => i.severity === "warning");
+
+    // The file's own version, not the tool's. A 0.2.0 file read by a 0.3.0 tool is
+    // valid and is still a 0.2.0 file, and saying otherwise hides that from the reader.
+    const version =
+      (raw as { athleticstandard_version?: string }).athleticstandard_version ?? null;
+
+    if (opts.json) {
+      console.log(
+        JSON.stringify(
+          { file: path, athleticstandard_version: version, valid: errors.length === 0, issues },
+          null,
+          2,
+        ),
+      );
+      if (errors.length > 0) process.exit(1);
+      return;
+    }
+
+    for (const i of errors) console.error(`error  ${i.path}: ${i.message}`);
+    for (const i of warnings) console.warn(`warn   ${i.path}: ${i.message}`);
+
+    if (errors.length > 0) {
+      console.error(`\n${path}: INVALID — ${errors.length} error(s), ${warnings.length} warning(s)`);
+      process.exit(1);
+    }
+    console.log(
+      `${path}: valid Athletic Standard ${version ?? ATHLETIC_STANDARD_VERSION} file` +
+        (warnings.length > 0 ? ` (${warnings.length} warning(s))` : ""),
+    );
+  });
+
+program
+  .command("predict")
+  .helpGroup(GROUPS.predict)
+  .description("print the evidence a prediction rests on — reads only, writes nothing")
+  .addHelpText("after", EXAMPLES.predict!)
+  .argument("<benchmark>", "the benchmark to predict, e.g. `fran`. See them all with `ath stats`")
+  .option("--as-of <date>", "pretend it is this day, hiding everything after it, to test a prediction against what happened next (YYYY-MM-DD)")
+  .option("--file <path>", "read a file other than the one in this folder")
+  .option("--json", "structured output, for an agent rather than a person")
+  .action((benchmarkId: string, opts: { asOf?: string; file?: string; json?: boolean }) => {
+    const path = findOrFail(opts.file);
+    let file: AthleticStandardFileT;
+    try {
+      file = loadFile(path);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+
+    const asOf = opts.asOf ?? today();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf) || Number.isNaN(Date.parse(`${asOf}T00:00:00Z`))) {
+      return fail(`--as-of takes a day written as YYYY-MM-DD, not '${asOf}'.`);
+    }
+
+    let benchmark;
+    try {
+      benchmark = benchmarkOrRefuse(file, benchmarkId);
+    } catch (e) {
+      if (e instanceof PredictRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    const evidence = evidenceFor(file, path, benchmark, asOf);
+    console.log(opts.json ? JSON.stringify(evidenceAsJson(evidence), null, 2) : renderEvidence(evidence));
+  });
+
+program
+  .command("grade")
+  .helpGroup(GROUPS.predict)
+  .description("record what actually happened, and score the prediction against it")
+  .addHelpText("after", EXAMPLES.grade!)
+  .argument("<benchmark>", "the benchmark that was attempted, e.g. `fran`")
+  .option("--actual <score>", "what happened: `4:32` for a time, `245` for reps, `100kg` for a load")
+  .option("--date <date>", "the day of the attempt, as YYYY-MM-DD. Leave it off for today")
+  .option("--scaling <rx|scaled>", "whether the workout was done as written, or scaled")
+  .option("--analysis <json>", "the agent's write-up of a miss, after it has read the dossier")
+  .option("--file <path>", "change a file other than the one in this folder")
+  .option("-y, --yes", "write it without asking — for scripts, and when you are sure")
+  .option("--again", "record a second attempt on a day that already has a result")
+  .option("--dry-run", "show what would be written, and write nothing")
+  .option("--json", "structured output, for an agent rather than a person")
+  .action(async (benchmarkId: string, opts: GradeCliOptions) => {
+    const path = findOrFail(opts.file);
+    let file: AthleticStandardFileT;
+    try {
+      file = loadFile(path);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+
+    let benchmark;
+    try {
+      benchmark = benchmarkOrRefuse(file, benchmarkId);
+    } catch (e) {
+      if (e instanceof PredictRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    if (opts.analysis === undefined && opts.actual === undefined) {
+      return fail(
+        `say what happened: \`ath grade ${benchmarkId} --actual 4:32\`. ` +
+          `Use --analysis afterwards to write up a miss.`,
+      );
+    }
+
+    // Two calls, in the order the grading procedure runs: the result and the grade
+    // first, then the analysis an agent wrote after reading the dossier (D62).
+    const confirm = whoAnswers(opts);
+    try {
+      const outcome = opts.actual
+        ? planGrade(file, path, benchmark, opts.actual, {
+            date: opts.date,
+            scaling: opts.scaling,
+            again: opts.again,
+            confirm,
+          })
+        : null;
+
+      // Grading writes, so it shows what it will write and asks once, the same as
+      // `ath log`. The verdict comes after, because it is the consequence of the
+      // write rather than something to agree to (D65).
+      if (outcome && !opts.json) console.log(renderDraft(outcome.draft));
+
+      if (opts.dryRun) {
+        if (opts.json && outcome) console.log(JSON.stringify(gradeAsJson(outcome, false), null, 2));
+        else if (outcome) console.log(`\n${renderQuestion(outcome.draft)}\nnothing written (--dry-run)`);
+        else console.log("nothing written (--dry-run)");
+        return;
+      }
+
+      if (outcome && confirm === "ask" && !opts.yes && !opts.json && process.stdout.isTTY) {
+        const answer = await askOnTerminal(`\n${renderQuestion(outcome.draft)} `);
+        if (answer === null) {
+          return fail(
+            `there is no terminal to ask on, so nothing was written. ` +
+              `Pass --yes to write it without the question, or --dry-run to see what it would be.`,
+          );
+        }
+        const choice = Number(answer);
+        if (Number.isInteger(choice) && choice >= 2 && choice <= outcome.draft.candidates.length) {
+          outcome.draft.chosenCandidate = choice - 1;
+        } else if (!/^y(es)?$/i.test(answer)) {
+          console.log("nothing written");
+          return;
+        }
+      }
+
+      const written =
+        opts.analysis !== undefined
+          ? analysisAsJson(attachAnalysis(file, benchmark, opts.analysis))
+          : null;
+      if (outcome) applyGrade(file, outcome);
+
+      const validation = validateAthleticStandardFile(file);
+      if (!validation.valid) {
+        const first = validation.issues.filter((i) => i.severity === "error").slice(0, 5);
+        return fail(
+          `that would make the file invalid, so nothing was written:\n` +
+            first.map((i) => `  ${i.path}: ${i.message}`).join("\n"),
+        );
+      }
+      saveFile(path, file);
+
+      if (opts.json) {
+        console.log(
+          JSON.stringify(
+            { ...(outcome ? gradeAsJson(outcome, true) : {}), ...(written ?? {}) },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+      if (outcome) console.log(`\n${renderGrade(outcome)}`);
+      if (written) {
+        console.log(
+          `analysis attached to '${written.prediction}'` +
+            ((written.miss_analysis as { unexplained: boolean }).unexplained ? ", marked unexplained" : ""),
+        );
+      }
+    } catch (e) {
+      if (e instanceof GradeRefusal) return fail((e as Error).message);
+      if (e instanceof LogRefusal) return fail((e as Error).message);
+      throw e;
+    }
   });
 
 program
   .command("series")
+  .helpGroup(GROUPS.read)
   .description("read a sample series back: one row per day, or the raw samples")
+  .addHelpText("after", EXAMPLES.series!)
   .argument("<quantity>", `one of: ${Object.keys(SERIES_QUANTITY_UNITS).join(", ")}`)
   .option("--from <date>", "earliest day to include (YYYY-MM-DD)")
   .option("--to <date>", "latest day to include (YYYY-MM-DD)")
-  .option("--source <id>", "only this source, when several measured the same quantity")
-  .option("--raw", "every sample, not a daily summary")
-  .option("--json", "structured output")
-  .option("--file <path>", "athlete file to read (default: the one in this directory)")
+  .option("--source <id>", "one device only, for when two measured the same thing — `ath stats` lists the ids")
+  .option("--raw", "every sample, rather than one row per day")
+  .option("--json", "structured output, for an agent rather than a person")
+  .option("--file <path>", "read a file other than the one in this folder")
   .action(
     (
       quantity: string,
@@ -179,7 +621,8 @@ program
       if (!(quantity in SERIES_QUANTITY_UNITS)) {
         return fail(
           `unknown quantity '${quantity}'. Known quantities: ` +
-            Object.keys(SERIES_QUANTITY_UNITS).join(", "),
+            Object.keys(SERIES_QUANTITY_UNITS).join(", ") +
+            `. \`ath stats\` lists the ones this file actually holds.`,
         );
       }
       const unit = SERIES_QUANTITY_UNITS[quantity as keyof typeof SERIES_QUANTITY_UNITS];
@@ -204,21 +647,43 @@ program
         ].sort();
         return fail(
           opts.source
-            ? `no ${quantity} series recorded for source '${opts.source}'`
-            : `no ${quantity} series in this file. Recorded: ${available.join(", ") || "none"}`,
+            ? `no ${quantity} series from '${opts.source}'. Drop --source to see every ` +
+              `device that recorded it, or run \`ath stats\` for the source ids.`
+            : `no ${quantity} series in this file. Recorded: ${available.join(", ") || "none"}. ` +
+              `Import a device export to add more.`,
         );
       }
 
       if (opts.raw) {
         const days = readRawDays(path, refs, query);
-        console.log(opts.json ? JSON.stringify(days, null, 2) : renderRawDays(quantity, unit, days));
+        console.log(
+          opts.json
+            ? JSON.stringify(
+                {
+                  quantity,
+                  unit,
+                  coverage: coverageOfDays(
+                    quantity,
+                    days.map((d) => ({ day: d.day, source: d.source, n: d.samples.length })),
+                  ),
+                  days,
+                },
+                null,
+                2,
+              )
+            : renderRawDays(quantity, unit, days),
+        );
         return;
       }
 
       const rows = summarizeDays(path, refs, query);
       console.log(
         opts.json
-          ? JSON.stringify({ quantity, unit, days: rows }, null, 2)
+          ? JSON.stringify(
+              { quantity, unit, coverage: coverageOfDays(quantity, rows), days: rows },
+              null,
+              2,
+            )
           : renderDaySummaries(quantity, unit, rows),
       );
     },
@@ -226,11 +691,17 @@ program
 
 program
   .command("stats")
-  .description("summarize the file: counts, date ranges, baselines")
-  .argument("[file]", "path to the file (default: the one in this directory)")
-  .action((fileArg) => {
+  .helpGroup(GROUPS.read)
+  .description("what is in the file: counts, date ranges, sources, and baselines")
+  .addHelpText("after", EXAMPLES.stats!)
+  .argument("[file]", "the file to summarize (default: the one in this folder)")
+  .option("--json", "structured output, for an agent rather than a person")
+  .action((fileArg, opts: { json?: boolean }) => {
     const path = findOrFail(fileArg);
-    console.log(renderStats(loadFile(path), path));
+    const file = loadFile(path);
+    console.log(
+      opts.json ? JSON.stringify(statsAsJson(file, path), null, 2) : renderStats(file, path),
+    );
   });
 
 /**
@@ -285,6 +756,120 @@ function seriesIssues(path: string, result: ValidationResult): ValidationIssue[]
     }
   }
   return issues;
+}
+
+/**
+ * Offer each waiting match, and return how many were attached.
+ *
+ * With no terminal it prints the candidates and the command that links them, because
+ * a match nobody was told about is a match nobody makes.
+ */
+async function offerWaitingMatches(waiting: ReturnType<typeof waitingMatches>): Promise<number> {
+  const plural = waiting.length === 1 ? "result" : "results";
+  console.log(
+    `\n${waiting.length} ${plural} logged earlier now have a session on the same day:`,
+  );
+
+  let linked = 0;
+  for (const { result, candidates } of waiting) {
+    const day = result.recorded_at.slice(0, 10);
+    const best = candidates[0]!;
+    console.log(`  ${result.benchmark} on ${day} — ${best.label}`);
+
+    if (!process.stdout.isTTY) {
+      console.log(`    ath link ${result.benchmark}@${day} ${best.start.slice(11, 16)}`);
+      continue;
+    }
+
+    const extra = candidates
+      .slice(1, 4)
+      .map((c, i) => `  [${i + 2}] the ${c.start.slice(11, 16)} one`)
+      .join("");
+    const answer = await askOnTerminal(`    link it? [y] yes  [n] no${extra} `);
+    if (answer === null) return linked;
+    const choice = Number(answer);
+    const pick =
+      Number.isInteger(choice) && choice >= 2 && choice <= candidates.length
+        ? candidates[choice - 1]!
+        : /^y(es)?$/i.test(answer)
+          ? best
+          : null;
+    if (!pick) continue;
+    result.session = { source: pick.source, start: pick.start };
+    linked++;
+  }
+  return linked;
+}
+
+interface GradeCliOptions {
+  actual?: string;
+  date?: string;
+  scaling?: "rx" | "scaled";
+  analysis?: string;
+  file?: string;
+  yes?: boolean;
+  again?: boolean;
+  dryRun?: boolean;
+  json?: boolean;
+}
+
+interface LogOptions {
+  benchmark?: string;
+  date?: string;
+  scaling?: "rx" | "scaled";
+  file?: string;
+  yes?: boolean;
+  again?: boolean;
+  dryRun?: boolean;
+  json?: boolean;
+}
+
+/**
+ * Who will answer the one question, which is what the session match turns on (D68).
+ *
+ * `--yes` is agreement in advance, not permission to choose between two real
+ * sessions. `--dry-run` previews the interactive run, so it answers the same way a
+ * terminal would. Everything else has nobody to ask.
+ */
+function whoAnswers(opts: { yes?: boolean; dryRun?: boolean; json?: boolean }): Confirm {
+  if (opts.yes) return "assume";
+  if (opts.dryRun || (process.stdout.isTTY === true && !opts.json)) return "ask";
+  return "none";
+}
+
+/** Everything piped or pasted, to the end. Empty when nothing is coming. */
+async function readStdin(): Promise<string> {
+  if (process.stdin.isTTY) {
+    process.stderr.write("Paste the entry, then press Ctrl-D:\n");
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/**
+ * Ask on the terminal itself rather than on stdin.
+ *
+ * When the entry was pasted, stdin has already ended at Ctrl-D, so there is nothing
+ * left to read an answer from. The terminal is still there, so the question goes to
+ * it directly. Returns null where there is no terminal at all.
+ */
+async function askOnTerminal(question: string): Promise<string | null> {
+  const { createReadStream } = await import("node:fs");
+  let input: NodeJS.ReadableStream;
+  try {
+    input = process.stdin.isTTY && process.stdin.readable ? process.stdin : createReadStream("/dev/tty");
+  } catch {
+    return null;
+  }
+  const rl = createInterface({ input, output: process.stdout });
+  try {
+    return (await rl.question(question)).trim();
+  } catch {
+    return null;
+  } finally {
+    rl.close();
+  }
 }
 
 function findOrFail(fileArg?: string): string {

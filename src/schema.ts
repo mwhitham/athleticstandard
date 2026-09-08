@@ -41,6 +41,11 @@ export const SourceKind = z.enum(["wearable", "export_file", "connector", "manua
  * `<<HKDevice: 0x2809b6800>, name:Apple Watch, manufacturer:Apple Inc., model:Watch,
  * hardware:Watch6,2, software:10.2>`. The address changes every run and the software
  * changes every update, so neither is kept. What remains describes the physical thing.
+ *
+ * `from`, `to` and `n` are the device index (D51). A source is not split on hardware,
+ * so a replaced watch keeping its name leaves two entries here — and without dates
+ * nothing said when the change happened or how much each one wrote. These cannot be
+ * recomputed later, because a reading names its source and never its device.
  */
 export const Device = z
   .strictObject({
@@ -48,6 +53,17 @@ export const Device = z
     manufacturer: z.string().optional(),
     model: z.string().optional(),
     hardware: z.string().optional().describe("e.g. Watch6,2"),
+    from: CalendarDate.optional().describe("First day this device was seen writing"),
+    to: CalendarDate.optional().describe("Last day this device was seen writing"),
+    n: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Records this device wrote into the document, counted after deduplication. " +
+          "Sidecar samples are counted per quantity by series_ref, not here.",
+      ),
   })
   .describe("A physical device seen writing under this source, without version or address");
 
@@ -79,8 +95,9 @@ export const Source = z
       .array(Device)
       .optional()
       .describe(
-        "Every distinct device seen writing under this name. Recorded, not used to split: " +
-          "a replaced watch that keeps its name stays one source and lists both here.",
+        "Every distinct device seen writing under this name, each with the window it " +
+          "wrote over and how much. Recorded, not used to split: a replaced watch that " +
+          "keeps its name stays one source and lists both here.",
       ),
     sensor: z
       .string()
@@ -288,6 +305,12 @@ export const Score = z
 /**
  * A benchmark result is measured fact even when hand-entered — but its source
  * will be `manual` unless it came from a device, keeping the trust level visible.
+ *
+ * `session` names the workout this result was recorded during (D48). A session is
+ * already identified by its source and start — the same key the importers reconcile
+ * duplicates on — so the reference survives a re-import without an id being invented.
+ * It is optional because device data usually arrives days after the workout was
+ * logged, and a result with no session is a match still waiting rather than an error.
  */
 export const BenchmarkResult = z.strictObject({
   type: z.literal("benchmark_result"),
@@ -296,6 +319,13 @@ export const BenchmarkResult = z.strictObject({
   source: Id.describe("Reference to sources[].id"),
   result: Score,
   scaling: z.enum(["rx", "scaled"]).optional(),
+  session: z
+    .strictObject({
+      source: Id.describe("Reference to the workout session's sources[].id"),
+      start: Timestamp.describe("The workout session's start, matched exactly"),
+    })
+    .optional()
+    .describe("The workout session this result was recorded during"),
   note: z.string().optional(),
 });
 
@@ -585,11 +615,30 @@ export const Prediction = z.strictObject({
     .string()
     .describe("Must cite specific dates and values from the evidence, not vague trends"),
   evidence_window: z.strictObject({ from: CalendarDate, to: CalendarDate }),
-  model: z.string().describe("Model that produced the prediction"),
+  model: z.string().describe("Model that produced the prediction, e.g. 'claude-opus-4'"),
+  agent: z
+    .string()
+    .optional()
+    .describe(
+      "Program the model ran inside, e.g. 'Claude Code'. Supplied by the agent, and " +
+        "required by `ath log` — a prediction whose author is unknown cannot be weighed later.",
+    ),
+  ath_version: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/, "semver")
+    .optional()
+    .describe(
+      "Version of ath that wrote the prediction. Filled in by the tool, which knows it, " +
+        "and overwritten if the caller supplies one. A file upgraded later does not change it.",
+    ),
   actual: z
     .strictObject({ result: Score, recorded_at: Timestamp })
     .nullable()
-    .default(null),
+    .default(null)
+    .describe(
+      "What happened. `recorded_at` together with this prediction's `benchmark` identifies " +
+        "the benchmark_result in hard_signals, and `ath check` verifies the two agree.",
+    ),
   grade: Grade.nullable().default(null),
   miss_analysis: MissAnalysis.nullable().default(null),
 });
@@ -608,7 +657,7 @@ export const Athlete = z.strictObject({
     .describe("Display preference only — stored values are always canonical (metric) units"),
 });
 
-export const ATHLETIC_STANDARD_VERSION = "0.2.0";
+export const ATHLETIC_STANDARD_VERSION = "0.3.0";
 
 export const AthleticStandardFile = z
   .strictObject({
@@ -636,6 +685,7 @@ export type HardSignalT = z.infer<typeof HardSignal>;
 export type SoftSignalT = z.infer<typeof SoftSignal>;
 export type BenchmarkT = z.infer<typeof Benchmark>;
 export type PredictionT = z.infer<typeof Prediction>;
+export type GradeT = z.infer<typeof Grade>;
 export type ScoreT = z.infer<typeof Score>;
 export type PointMeasurementT = z.infer<typeof PointMeasurement>;
 export type SoftSignalTypeT = z.infer<typeof SoftSignalType>;

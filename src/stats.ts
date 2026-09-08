@@ -4,13 +4,14 @@
  */
 import type { AthleticStandardFileT } from "./schema.js";
 import { latestReadingDay, readingsFor } from "./readings.js";
+import { coverageOf, daysBetween, renderCoverage, RULES, type Coverage } from "./coverage.js";
+import { dayBefore, TRACKED } from "./signals.js";
 
 export interface Baseline {
   mean: number;
   sd: number;
-  n: number;
-  from: string;
-  to: string;
+  /** What the mean rests on, and the rule that produced it (D47). */
+  coverage: Coverage;
 }
 
 function mean(xs: number[]): number {
@@ -27,9 +28,18 @@ const day = (ts: string) => ts.slice(0, 10);
 /** Instant in milliseconds. Offset timestamps cannot be ordered as strings. */
 const instant = (ts: string): number => Date.parse(ts);
 
-/** Calendar day `days` before `d`. */
-function dayBefore(d: string, days: number): string {
-  return new Date(Date.parse(`${d}T00:00:00Z`) - days * 86400_000).toISOString().slice(0, 10);
+export interface BaselineWindow {
+  windowDays?: number;
+  /**
+   * Hide everything after this day, for a backtest that cannot see the answer.
+   *
+   * It hides, and that is all it does. The window is still anchored on the latest
+   * reading, still measured back from that reading's own instant, still bounded
+   * before any sidecar is opened. A second way of computing the same number would
+   * mean `--as-of` changed the arithmetic as well as the data, and then a backtest
+   * would be testing the tool rather than the reasoning (D69).
+   */
+  asOf?: string | undefined;
 }
 
 /**
@@ -50,10 +60,14 @@ export function baselineFor(
   athleteFilePath: string,
   type: string,
   source: string,
-  windowDays = 90,
+  options: BaselineWindow = {},
 ): Baseline | null {
-  const latestDay = latestReadingDay(file, athleteFilePath, type, source);
-  if (latestDay === null) return null;
+  const windowDays = options.windowDays ?? 90;
+  const asOf = options.asOf;
+
+  const seen = latestReadingDay(file, athleteFilePath, type, source);
+  if (seen === null) return null;
+  const latestDay = asOf !== undefined && asOf < seen ? asOf : seen;
 
   // A day wider than the window at each end, because a day is not an instant: the
   // exact cutoff is applied below, once the readings carry their own timestamps.
@@ -66,16 +80,144 @@ export function baselineFor(
   const latest = readings.reduce((a, b) => (instant(a.at) >= instant(b.at) ? a : b));
   const cutoff = instant(latest.at) - windowDays * 86400_000;
   const windowed = readings.filter((r) => instant(r.at) >= cutoff);
-  const earliest = windowed.reduce((a, b) => (instant(a.at) <= instant(b.at) ? a : b));
   const values = windowed.map((r) => r.value);
   const m = mean(values);
   return {
     mean: Math.round(m * 10) / 10,
     sd: Math.round(sd(values, m) * 10) / 10,
-    n: windowed.length,
-    from: day(earliest.at),
-    to: day(latest.at),
+    coverage: coverageOf(windowed, source, RULES.baseline(type, windowDays))!,
   };
+}
+
+/**
+ * The days each source covers, computed rather than stored (D51).
+ *
+ * Every hard signal names its source and every coverage record carries its own
+ * dates, so this is already in the file. Storing a copy would be a second thing to
+ * keep true. The per-device windows are stored because nothing can recover those.
+ */
+export function sourceWindows(
+  file: AthleticStandardFileT,
+): Map<string, { from: string; to: string; n: number }> {
+  const windows = new Map<string, { from: string; to: string; n: number }>();
+  for (const sig of file.hard_signals) {
+    const [first, last] =
+      sig.type === "series_ref"
+        ? [sig.from, sig.to]
+        : "recorded_at" in sig
+          ? [day(sig.recorded_at), day(sig.recorded_at)]
+          : [day(sig.start), day(sig.end)];
+    const seen = windows.get(sig.source);
+    if (!seen) {
+      windows.set(sig.source, { from: first, to: last, n: 1 });
+      continue;
+    }
+    if (first < seen.from) seen.from = first;
+    if (last > seen.to) seen.to = last;
+    seen.n++;
+  }
+  return windows;
+}
+
+/**
+ * The same summary as `renderStats`, as data (D47).
+ *
+ * An agent reading prose is an agent guessing at where a number ends and its
+ * qualifier begins. Every figure here carries the coverage record the text prints.
+ */
+export function statsAsJson(
+  file: AthleticStandardFileT,
+  athleteFilePath: string,
+): Record<string, unknown> {
+  const windows = sourceWindows(file);
+  const hardByType = new Map<string, number>();
+  for (const s of file.hard_signals) hardByType.set(s.type, (hardByType.get(s.type) ?? 0) + 1);
+  const softByType = new Map<string, number>();
+  for (const s of file.soft_signals) softByType.set(s.type, (softByType.get(s.type) ?? 0) + 1);
+
+  const results = file.hard_signals.filter((s) => s.type === "benchmark_result");
+  const byBenchmark = new Map<string, number>();
+  for (const r of results) {
+    if (r.type === "benchmark_result") byBenchmark.set(r.benchmark, (byBenchmark.get(r.benchmark) ?? 0) + 1);
+  }
+
+  return {
+    athlete: file.athlete.name ?? null,
+    athleticstandard_version: file.athleticstandard_version,
+    hard_signals: { total: file.hard_signals.length, by_type: Object.fromEntries(hardByType) },
+    soft_signals: { total: file.soft_signals.length, by_type: Object.fromEntries(softByType) },
+    sources: file.sources.map((src) => ({
+      id: src.id,
+      kind: src.kind,
+      writer: src.writer ?? null,
+      via: src.via ?? null,
+      records: windows.get(src.id)?.n ?? 0,
+      from: windows.get(src.id)?.from ?? null,
+      to: windows.get(src.id)?.to ?? null,
+      devices: src.devices ?? [],
+    })),
+    baselines: file.sources.flatMap((src) =>
+      TRACKED.map(({ type, unit }) => ({ src, type, unit, b: baselineFor(file, athleteFilePath, type, src.id) }))
+        .filter((x) => x.b !== null)
+        .map(({ src, type, unit, b }) => ({
+          source: src.id,
+          type,
+          unit,
+          mean: b!.mean,
+          sd: b!.sd,
+          coverage: b!.coverage,
+        })),
+    ),
+    series: file.hard_signals
+      .filter((s): s is Extract<typeof s, { type: "series_ref" }> => s.type === "series_ref")
+      .map((s) => ({
+        quantity: s.quantity,
+        source: s.source,
+        unit: s.unit,
+        coverage: {
+          n: s.n,
+          from: s.from,
+          to: s.to,
+          days_present: s.days,
+          days_expected: daysBetween(s.from, s.to),
+          source: s.source,
+          rule: RULES.dailySummary(s.quantity),
+        },
+      })),
+    benchmarks: { defined: file.benchmarks.length, results: results.length, by_benchmark: Object.fromEntries(byBenchmark) },
+    predictions: {
+      total: file.predictions.length,
+      graded: file.predictions.filter((p) => p.grade !== null).length,
+      by_author: predictionsByAuthor(file),
+    },
+  };
+}
+
+export interface AuthorRow {
+  author: string;
+  recorded: number;
+  graded: number;
+  hits: number;
+}
+
+/**
+ * Predictions grouped by who made them (D66).
+ *
+ * The agent and the model together, because the same model behaves differently under
+ * different scaffolding. Predictions written before those fields existed are grouped
+ * under "unrecorded" rather than dropped.
+ */
+export function predictionsByAuthor(file: AthleticStandardFileT): AuthorRow[] {
+  const rows = new Map<string, AuthorRow>();
+  for (const p of file.predictions) {
+    const author = p.agent ? `${p.agent} running ${p.model}` : `${p.model} (agent unrecorded)`;
+    const row = rows.get(author) ?? { author, recorded: 0, graded: 0, hits: 0 };
+    row.recorded += 1;
+    if (p.grade) row.graded += 1;
+    if (p.grade?.in_range) row.hits += 1;
+    rows.set(author, row);
+  }
+  return [...rows.values()].sort((a, b) => b.recorded - a.recorded || a.author.localeCompare(b.author));
 }
 
 export function renderStats(file: AthleticStandardFileT, athleteFilePath: string): string {
@@ -122,6 +264,7 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
   for (const s of file.hard_signals) {
     readingsBySource.set(s.source, (readingsBySource.get(s.source) ?? 0) + 1);
   }
+  const windows = sourceWindows(file);
   lines.push(`sources: ${file.sources.length}`);
   for (const src of file.sources) {
     const what =
@@ -130,29 +273,28 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
         : [src.writer, src.sensor, src.via ? `via ${src.via}` : undefined]
             .filter(Boolean)
             .join(", ") || (src.detail ?? src.kind);
-    const devices = (src.devices ?? [])
-      .map((d) => [d.name, d.hardware].filter(Boolean).join(" "))
-      .filter(Boolean);
     const n = readingsBySource.get(src.id) ?? 0;
+    const window = windows.get(src.id);
     lines.push(
-      `  ${src.id}: ${what}` +
-        (devices.length > 0 ? ` [${devices.join("; ")}]` : "") +
-        ` — ${n} record${n === 1 ? "" : "s"}`,
+      `  ${src.id}: ${what} — ${n} record${n === 1 ? "" : "s"}` +
+        (window ? `, ${window.from} → ${window.to}` : ""),
     );
+    // What the source is made of (D51). A replaced watch keeps the same name, so the
+    // windows are the only place the change is visible.
+    for (const device of src.devices ?? []) {
+      const label = [device.name, device.hardware ?? device.model].filter(Boolean).join(" ");
+      const wrote = device.n === undefined ? "" : ` — ${device.n} record${device.n === 1 ? "" : "s"}`;
+      const when = device.from && device.to ? `, ${device.from} → ${device.to}` : "";
+      lines.push(`    ${label || "unnamed device"}${wrote}${when}`);
+    }
   }
   lines.push("");
 
   // Baselines are listed per source, never pooled (D31). A reader comparing two
   // devices should see two numbers and decide, not one number hiding a disagreement.
-  const baselineTypes: [string, string][] = [
-    ["hrv_rmssd", "ms"],
-    ["hrv_sdnn", "ms"],
-    ["resting_heart_rate", "bpm"],
-    ["respiratory_rate", "brpm"],
-  ];
   const baselineRows = file.sources.flatMap((src) =>
-    baselineTypes
-      .map(([type, unit]) => ({
+    TRACKED
+      .map(({ type, unit }) => ({
         source: src.id,
         type,
         unit,
@@ -163,9 +305,8 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
   if (baselineRows.length > 0) {
     lines.push("90-day baselines (per source — never pooled across devices):");
     for (const { source, type, unit, b } of baselineRows) {
-      lines.push(
-        `  ${source} ${type}: ${b!.mean}${unit} (n=${b!.n}, ${b!.from} → ${b!.to}, sd ${b!.sd})`,
-      );
+      lines.push(`  ${source} ${type}: ${b!.mean}${unit} (sd ${b!.sd})`);
+      lines.push(`    ${renderCoverage(b!.coverage)}`);
     }
     lines.push("");
   }
@@ -178,9 +319,13 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
     for (const s of [...seriesRefs].sort((a, b) =>
       `${a.source} ${a.quantity}`.localeCompare(`${b.source} ${b.quantity}`),
     )) {
+      // Days present against days in the window, so a gap is visible rather than
+      // hidden behind a large sample count (D47).
+      const expected = daysBetween(s.from, s.to);
+      const span = s.days === expected ? `${s.days} day${s.days === 1 ? "" : "s"}` : `${s.days}/${expected} days`;
       lines.push(
         `  ${s.source} ${s.quantity}: ${s.n} sample${s.n === 1 ? "" : "s"} across ` +
-          `${s.days} day${s.days === 1 ? "" : "s"} (${s.from} → ${s.to})`,
+          `${span} (${s.from} → ${s.to})`,
       );
     }
     lines.push(`  read them with \`ath series <quantity>\``);
@@ -221,6 +366,13 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
   lines.push(
     `predictions: ${file.predictions.length} recorded · ${graded.length} graded`,
   );
+  // Split by who made them, because "which model has been right on this athlete" is
+  // the question a track record is kept to answer (D66).
+  for (const row of predictionsByAuthor(file)) {
+    lines.push(
+      `  ${row.author}: ${row.recorded} recorded, ${row.graded} graded, ${row.hits} hit`,
+    );
+  }
 
   return lines.join("\n");
 }

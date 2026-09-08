@@ -1,4 +1,4 @@
-# The Athletic Standard Format — Specification v0.2.0
+# The Athletic Standard Format — Specification v0.3.0
 
 **Status:** draft · **File extension:** `.ath.json` · **Schema:** [`schema/athleticstandard.schema.json`](schema/athleticstandard.schema.json) (JSON Schema draft 2020-12, generated from the Zod definitions in [`src/schema.ts`](src/schema.ts), which are normative)
 
@@ -17,7 +17,7 @@ Athletic Standard is an open, local-first file format for a functional-fitness a
 
 ```json
 {
-  "athleticstandard_version": "0.2.0",
+  "athleticstandard_version": "0.3.0",
   "athlete": { },
   "sources": [ ],
   "hard_signals": [ ],
@@ -68,6 +68,12 @@ Every hard signal references a source by id. This registry is what makes "measur
 **`via`** separates the same writer arriving by two routes. WHOOP's copy of its readings inside an Apple Health export is a rounded subset of WHOOP's own CSV export, so they are two sources (`via: "apple_health"` and `via: "whoop_csv"`), and a reader who wants to know how much the relay lost can compare them.
 
 **`devices`** records the physical hardware without splitting on it. Each entry may hold `name`, `manufacturer`, `model`, and `hardware` (e.g. `Watch6,2`). Software versions and memory addresses are never kept: they change without the device changing. A replaced watch that keeps its name stays one source and lists both devices here, because the alternative — one source per hardware generation — would also split a single watch whose older records lack a device attribute.
+
+Each entry also carries the days it wrote over and how much: `from` and `to` (calendar dates) and `n` (records written into the document, counted after duplicates are reconciled). This is the device index. Without it, a replaced watch keeping its name leaves two entries with nothing saying when the change happened or how much each one wrote, and three years of readings sit under one name with no visible seam.
+
+These three cannot be recomputed later, because a reading names its source and never its device, so they are stored. A source's own window and record count are not stored, because every hard signal names its source and every `series_ref` carries its own dates — those are computed at read time and shown by `ath stats`.
+
+Sidecar samples are not counted in `n`. They are counted per quantity by `series_ref`, which is where the sample counts live. Exports that name no device — WHOOP's and Oura's CSVs — leave `devices` absent, and the source still reports source-level coverage.
 
 **`sensor`** exists because one device can hold sensors of very different accuracy. An Apple Watch times heartbeats optically all day and electrically when the wearer takes an ECG; the electrical figure is the reference standard while the optical one carries roughly 29% error. Those get separate sources — `apple-watch-1` and `apple-watch-ecg-1` — so their baselines never pool, for the same reason two different devices do not pool.
 
@@ -208,7 +214,7 @@ Nothing is averaged or downsampled anywhere: the sidecars hold every sample the 
 A sidecar is one quantity, one day, one source:
 
 ```json
-{ "athleticstandard_version": "0.2.0", "quantity": "heart_rate", "unit": "bpm",
+{ "athleticstandard_version": "0.3.0", "quantity": "heart_rate", "unit": "bpm",
   "start": "2026-08-09T00:00:12-07:00", "source": "apple-watch-1",
   "offsets_ms": [0, 300000], "values": [62, 64] }
 ```
@@ -218,7 +224,7 @@ A sidecar is one quantity, one day, one source:
 A sample that covers a span rather than an instant — "420 steps from 9:00 to 9:05" — keeps its length in a third parallel array, `durations_ms`. It is present only when at least one sample on that day has a span, so a day of heart-rate readings does not carry a column of zeros. Steps, energy, distance, exercise time and Apple's HRV windows have spans; heart rate, oxygen saturation and respiratory rate do not.
 
 ```json
-{ "athleticstandard_version": "0.2.0", "quantity": "steps", "unit": "count",
+{ "athleticstandard_version": "0.3.0", "quantity": "steps", "unit": "count",
   "start": "2026-08-09T09:00:00-07:00", "source": "iphone-1",
   "offsets_ms": [0, 300000], "values": [420, 388], "durations_ms": [300000, 300000] }
 ```
@@ -275,10 +281,15 @@ A scored attempt at a defined benchmark. A result is measured fact even when han
 { "type": "benchmark_result", "benchmark": "fran",
   "recorded_at": "2026-08-09T17:30:00Z", "source": "manual-1",
   "result": { "duration_s": 281 }, "scaling": "rx",
+  "session": { "source": "whoop-1", "start": "2026-08-09T17:25:00Z" },
   "note": "unbroken thrusters first two rounds" }
 ```
 
 `result` is a **score object**: at least one of `duration_s` (for time-scored benchmarks), `reps`, `weight_kg`. The key matching the benchmark's `score_type` is required (validated); extra keys are allowed. `scaling` is `rx` | `scaled`, optional.
+
+**`session`** names the `workout_session` this result was recorded during, by that session's `source` and `start`. Those two fields already identify a session uniquely — they are the key the importers reconcile duplicates on — so the reference survives a re-import unchanged and no importer has to invent an id. The validator requires it to resolve to a session that exists.
+
+It is optional, and most results do not have it. Device data usually arrives days after the workout was logged, so a result with no `session` is a match still waiting rather than an error. That state needs no extra field to record it: the absence is the record. Every import looks for unlinked results whose day now has a session and offers the match, and `ath link` makes or corrects one by hand.
 
 ## `soft_signals` — Tier 2, self-reported
 
@@ -352,6 +363,8 @@ Written by an agent **before** the attempt; graded after; append-only by convent
   "reasoning": "Last Fran 4:41 on 2026-06-02. HRV 61-66ms all week vs 63ms baseline. …",
   "evidence_window": { "from": "2026-06-01", "to": "2026-08-09" },
   "model": "claude-sonnet-4-5",
+  "agent": "Claude Code",
+  "ath_version": "0.3.0",
   "actual": null, "grade": null, "miss_analysis": null }
 ```
 
@@ -359,14 +372,24 @@ Written by an agent **before** the attempt; graded after; append-only by convent
 |---|---|---|
 | `id`, `benchmark`, `created_at` | yes | |
 | `predicted` | yes | score object matching the benchmark's `score_type` |
-| `range` | no | stated uncertainty: `low`/`high` score objects. Grading tests whether the actual landed inside |
+| `range` | no | stated uncertainty: `low`/`high` score objects. Grading tests whether the actual landed inside. A prediction that stated no range is never a hit |
 | `confidence` | yes | `low` \| `moderate` \| `high` |
 | `reasoning` | yes | must cite specific dates and values, not vague trends |
 | `evidence_window` | yes | the date range of data the prediction considered |
 | `model` | yes | which model produced it |
+| `agent` | no | the program the model ran inside, e.g. `Claude Code`. Optional in the format so older files load; `ath log` refuses a prediction that omits it |
+| `ath_version` | no | the version of `ath` that wrote the prediction. Written by the tool, which knows it. A file upgraded later does not change it |
 | `actual` | after attempt | `{ result, recorded_at }` — must not precede `created_at` (validated) |
 | `grade` | after grading | `{ signed_error, abs_error_pct, in_range }` — computed deterministically, never by the LLM |
 | `miss_analysis` | on misses | see below |
+
+### The prediction points at its result
+
+`actual.recorded_at` together with the prediction's `benchmark` identifies a `benchmark_result` in `hard_signals`. Validators check that the result exists and that the two scores agree.
+
+That is the second of two links joining the three records that describe one attempt. The first is `benchmark_result.session`, which names the workout session the effort was recorded in. So the chain runs prediction → result → session, and can be walked from either end.
+
+No id was added for either link. A result is identified by its benchmark and its instant, and a session by its source and its start.
 
 ### `miss_analysis`
 
@@ -399,7 +422,7 @@ Validators should accept any file whose major version they support and warn on n
 Two layers, both required for a file to be conformant:
 
 1. **Schema** (`schema/athleticstandard.schema.json`): shapes, types, enums, canonical units, strict objects (unknown keys rejected).
-2. **Semantic rules** (reference implementation: `src/validate.ts`): source and benchmark references resolve; ids unique; session `end` after `start`; series coverage does not end before it begins; score keys match `score_type`; ratings carry scales; vendor scores carry scales; photo provenance names its interpreter; a `derived` value cites a series whose coverage includes the day it was computed for; series units match their quantity; actuals don't precede predictions; grades require actuals; miss analyses require grades; empty cause lists must be marked unexplained.
+2. **Semantic rules** (reference implementation: `src/validate.ts`): source and benchmark references resolve; a `benchmark_result.session` resolves to a workout session with that source and start; ids unique; session `end` after `start`; series coverage does not end before it begins; score keys match `score_type`; ratings carry scales; vendor scores carry scales; photo provenance names its interpreter; a `derived` value cites a series whose coverage includes the day it was computed for; series units match their quantity; actuals don't precede predictions; a graded prediction's `actual` resolves to a `benchmark_result` with a matching score; grades require actuals; miss analyses require grades; empty cause lists must be marked unexplained.
 3. **Sidecar checks** for any `series_ref`: hash what is on disk for the quantity and compare. A mismatch is one error naming the quantity. An absent `series/` folder is a single warning, not an error.
 
 ## Appendix A — Prior art and mapping

@@ -10,7 +10,12 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AthleticStandardFileT, HardSignalT, SoftSignalT } from "../src/schema.js";
+import type {
+  AthleticStandardFileT,
+  HardSignalT,
+  PredictionT,
+  SoftSignalT,
+} from "../src/schema.js";
 import { ATHLETIC_STANDARD_VERSION } from "../src/schema.js";
 import { validateAthleticStandardFile } from "../src/validate.js";
 
@@ -207,20 +212,186 @@ const benchmarkPlan: { id: string; day: number; base: number; note?: string }[] 
   { id: "helen", day: 401, base: 549 },
 ];
 
+// Where the watch recorded a session that day, the attempt happened inside it and
+// the result names it (D48). Not every benchmark day has one, and that is deliberate:
+// a result logged before the watch synced is the ordinary case, so the fixture holds
+// both a linked and an unlinked result for anything reading it to meet.
+const sessionByDay = new Map<string, { start: string; end: string }>();
+for (const sig of hard) {
+  if (sig.type !== "workout_session") continue;
+  sessionByDay.set(sig.start.slice(0, 10), { start: sig.start, end: sig.end });
+}
+
 for (const b of benchmarkPlan) {
   // A bad night before a benchmark costs 4-9%
   const penalty = badNight.has(b.day - 1) || badNight.has(b.day) ? between(1.04, 1.09) : 1.0;
   const duration = Math.round(b.base * penalty * gaussish(1, 0.012));
+  const session = sessionByDay.get(iso(dayAt(b.day)).slice(0, 10));
+  const insideSession = session
+    ? iso(
+        new Date(
+          Math.round(
+            Date.parse(session.start) + (Date.parse(session.end) - Date.parse(session.start)) * 0.6,
+          ),
+        ),
+      )
+    : undefined;
   hard.push({
     type: "benchmark_result",
     benchmark: b.id,
-    recorded_at: at(b.day, 18, 15),
+    recorded_at: insideSession ?? at(b.day, 18, 15),
     source: "manual-1",
     result: { duration_s: duration },
     scaling: "rx",
+    ...(session ? { session: { source: "whoop-1", start: session.start } } : {}),
     ...(b.note ? { note: b.note } : {}),
   });
 }
+
+// --- Predictions: the loop, so the demo file demonstrates the thing it is for ---
+//
+// A hit, a miss with its analysis, and one still open. Each graded prediction points
+// at the result it was graded against, by benchmark and instant, which is the rule
+// `ath check` enforces (D64). The numbers are computed from the results above rather
+// than typed in, so the fixture cannot drift out of agreement with itself.
+type Result = Extract<HardSignalT, { type: "benchmark_result" }>;
+
+const resultsFor = (id: string): Result[] =>
+  hard.filter((s): s is Result => s.type === "benchmark_result" && s.benchmark === id);
+
+const EVIDENCE_DAYS = 28;
+
+function predictionFor(
+  result: Result,
+  input: {
+    id: string;
+    predicted: number;
+    range: [number, number];
+    confidence: "low" | "moderate" | "high";
+    reasoning: string;
+  },
+): PredictionT {
+  const actual = result.result.duration_s!;
+  const createdAt = iso(new Date(Date.parse(result.recorded_at) - 3 * 86400_000));
+  const from = iso(new Date(Date.parse(createdAt) - (EVIDENCE_DAYS - 1) * 86400_000)).slice(0, 10);
+  const signed = Math.round((input.predicted - actual) * 100) / 100;
+  return {
+    id: input.id,
+    benchmark: result.benchmark,
+    created_at: createdAt,
+    predicted: { duration_s: input.predicted },
+    range: { low: { duration_s: input.range[0] }, high: { duration_s: input.range[1] } },
+    confidence: input.confidence,
+    reasoning: input.reasoning,
+    evidence_window: { from, to: createdAt.slice(0, 10) },
+    model: "claude-sonnet-4-5",
+    agent: "Claude Code",
+    ath_version: ATHLETIC_STANDARD_VERSION,
+    actual: { result: result.result, recorded_at: result.recorded_at },
+    grade: {
+      signed_error: signed,
+      abs_error_pct: Math.round((Math.abs(signed) / actual) * 1000) / 10,
+      in_range: actual >= input.range[0] && actual <= input.range[1],
+    },
+    miss_analysis: null,
+  };
+}
+
+const franResults = resultsFor("fran");
+const lastFran = franResults[franResults.length - 1]!;
+const hit = predictionFor(lastFran, {
+  id: `pred-${lastFran.recorded_at.slice(0, 10)}-fran`,
+  predicted: lastFran.result.duration_s! + 3,
+  range: [lastFran.result.duration_s! - 7, lastFran.result.duration_s! + 8],
+  confidence: "moderate",
+  reasoning:
+    "Three prior Frans, 5:10 down to 4:48 over eleven months, roughly 11 seconds off " +
+    "each time. HRV sat at its own 90-day mean every night of the last two weeks and " +
+    "the night before was 7h10m of actual sleep, so nothing argues for a departure " +
+    "from the trend.",
+});
+
+const helenResults = resultsFor("helen");
+const lastHelen = helenResults[helenResults.length - 1]!;
+const helenActual = lastHelen.result.duration_s!;
+const miss = predictionFor(lastHelen, {
+  id: `pred-${lastHelen.recorded_at.slice(0, 10)}-helen`,
+  predicted: Math.round(helenActual * 0.92),
+  range: [Math.round(helenActual * 0.92) - 8, Math.round(helenActual * 0.92) + 8],
+  confidence: "high",
+  reasoning:
+    "Two prior Helens, 9:45 then 9:21, and the run split is the part that has been " +
+    "improving. Called high confidence on the strength of two points, which is one " +
+    "more than none and fewer than enough.",
+});
+
+// A cause has to reference a signal the file holds (D62), so the analysis cites one
+// that is there or admits it has nothing.
+const attemptAt = Date.parse(lastHelen.recorded_at);
+const nearby = soft.find((s) => {
+  const at = Date.parse(s.reported_at);
+  return at <= attemptAt && at >= attemptAt - 72 * 3600_000;
+});
+miss.miss_analysis = nearby
+  ? {
+      direction: "slower",
+      severity: "significant",
+      candidate_causes: [
+        {
+          signal: { tier: "soft", type: nearby.type, date: nearby.reported_at.slice(0, 10) },
+          explanation:
+            `${nearby.type} reported ${nearby.rating}/5 on ${nearby.reported_at.slice(0, 10)}` +
+            (nearby.note ? `: "${nearby.note}"` : "") +
+            `. Self-reported, so it is what the athlete noticed and not a measurement.`,
+        },
+      ],
+      unexplained: false,
+      lesson:
+        "High confidence off two prior results was the error, not the number. Two " +
+        "points give a direction and no spread.",
+    }
+  : {
+      direction: "slower",
+      severity: "significant",
+      candidate_causes: [],
+      unexplained: true,
+      lesson: "Nothing in the file explains this one. High confidence off two results was the error.",
+    };
+
+const graceResults = resultsFor("grace");
+const lastGrace = graceResults[graceResults.length - 1]!;
+const lastDay = iso(dayAt(DAYS - 1)).slice(0, 10);
+const open: PredictionT = {
+  id: `pred-${lastDay}-grace`,
+  benchmark: "grace",
+  created_at: at(DAYS - 1, 9, 0),
+  predicted: { duration_s: lastGrace.result.duration_s! - 6 },
+  range: {
+    low: { duration_s: lastGrace.result.duration_s! - 14 },
+    high: { duration_s: lastGrace.result.duration_s! + 4 },
+  },
+  confidence: "low",
+  reasoning:
+    "Two prior Graces, and the second was 11 seconds faster than the first. The last " +
+    "one was three months ago and there has been no barbell work logged since, so the " +
+    "range is wide and the confidence is low.",
+  evidence_window: { from: iso(dayAt(DAYS - EVIDENCE_DAYS)).slice(0, 10), to: lastDay },
+  model: "claude-sonnet-4-5",
+  agent: "Claude Code",
+  ath_version: ATHLETIC_STANDARD_VERSION,
+  actual: null,
+  grade: null,
+  miss_analysis: null,
+};
+
+const predictions = [hit, miss, open].sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+// The device index (D51). A real import accumulates this while streaming; the fixture
+// derives it from what it just wrote, which is the same thing measured after the fact.
+const whoopDays = hard
+  .filter((s) => s.source === "whoop-1")
+  .map((s) => signalOrder(s).slice(0, 10))
+  .sort();
 
 const file: AthleticStandardFileT = {
   athleticstandard_version: ATHLETIC_STANDARD_VERSION,
@@ -231,6 +402,16 @@ const file: AthleticStandardFileT = {
       kind: "wearable",
       vendor: "whoop",
       detail: "WHOOP 4.0 via CSV export (synthetic fixture data)",
+      devices: [
+        {
+          name: "WHOOP",
+          manufacturer: "WHOOP",
+          model: "4.0",
+          from: whoopDays[0]!,
+          to: whoopDays[whoopDays.length - 1]!,
+          n: whoopDays.length,
+        },
+      ],
     },
     { id: "manual-1", kind: "manual", detail: "Hand-entered benchmark results" },
   ],
@@ -266,7 +447,7 @@ const file: AthleticStandardFileT = {
       tags: ["endurance"],
     },
   ],
-  predictions: [],
+  predictions,
 };
 
 const result = validateAthleticStandardFile(file);
@@ -281,5 +462,6 @@ writeFileSync(join(outDir, "athlete.ath.json"), JSON.stringify(file, null, 2) + 
 console.log(
   `wrote examples/demo-athlete/athlete.ath.json — ` +
     `${file.hard_signals.length} hard signals, ${file.soft_signals.length} soft signals, ` +
-    `${benchmarkPlan.length} benchmark results`,
+    `${benchmarkPlan.length} benchmark results, ${predictions.length} predictions ` +
+    `(${predictions.filter((p) => p.grade !== null).length} graded)`,
 );

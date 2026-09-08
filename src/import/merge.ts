@@ -16,6 +16,25 @@ import type {
   SourceT,
 } from "../schema.js";
 import { SERIES_DIR, type BuiltSeries } from "../series.js";
+import { daysBetween, RULES } from "../coverage.js";
+
+/**
+ * One device seen writing under one source, and when (D51).
+ *
+ * The window widens from every record the importer attributes, including samples
+ * that end up in a sidecar. Widening is stable under a repeat, because the earliest
+ * and latest day do not move when the same export is read twice.
+ */
+export interface DeviceObservation {
+  source: string;
+  device: DeviceT;
+  /** Earliest day seen, widened as records arrive. */
+  from: string;
+  /** Latest day seen. */
+  to: string;
+  /** Document records added under this device. Counted by the merge, after dedup. */
+  n: number;
+}
 
 /** What an importer produces, before anything is written. */
 export interface ImportPayload {
@@ -28,6 +47,26 @@ export interface ImportPayload {
   skipped: Map<string, number>;
   /** One example per skip reason, so a format mismatch is readable. */
   skipExamples: Map<string, string>;
+  /** The device index, keyed by `deviceIndexKey`. Empty for exports naming no device. */
+  deviceIndex: Map<string, DeviceObservation>;
+  /**
+   * Which device index entry a record belongs to, keyed by the record itself.
+   * Keyed by object rather than by content so the two can never drift apart.
+   */
+  deviceOf: Map<HardSignalT, string>;
+}
+
+/**
+ * Things this import saw for the first time (D52).
+ *
+ * A new writer, a new device under a writer already known, and a quantity a source
+ * has never written before are the same event: something outside changed. Naming it
+ * is the difference between a visible seam and a number that quietly shifts.
+ */
+export interface FirstAppearances {
+  sources: string[];
+  devices: { source: string; device: DeviceT }[];
+  quantities: { source: string; quantity: string }[];
 }
 
 export interface MergeSummary {
@@ -35,6 +74,8 @@ export interface MergeSummary {
   added: Map<string, Map<string, number>>;
   /** Every source this import touched, with how it describes itself. */
   sourceDetails: Map<string, string>;
+  /** What appeared for the first time in this import. */
+  firstSeen: FirstAppearances;
   duplicates: number;
   softAdded: number;
   softDuplicates: number;
@@ -57,7 +98,38 @@ export function emptyPayload(vendor: string, detail: string): ImportPayload {
     series: [],
     skipped: new Map(),
     skipExamples: new Map(),
+    deviceIndex: new Map(),
+    deviceOf: new Map(),
   };
+}
+
+/** Identity of a device index entry: the source it wrote under, and the device itself. */
+export function deviceIndexKey(source: string, device: DeviceT): string {
+  return [source, device.name, device.manufacturer, device.model, device.hardware].join("\u0000");
+}
+
+/**
+ * Note that `device` wrote under `source` on `onDay`, widening its window.
+ *
+ * Called once per record rather than once per device, because the window is the
+ * point: a source that is not split on hardware (D45) needs the dates to show where
+ * one watch stopped and the next began.
+ */
+export function observeDevice(
+  payload: ImportPayload,
+  source: string,
+  device: DeviceT,
+  onDay: string,
+): string {
+  const key = deviceIndexKey(source, device);
+  const seen = payload.deviceIndex.get(key);
+  if (!seen) {
+    payload.deviceIndex.set(key, { source, device, from: onDay, to: onDay, n: 0 });
+    return key;
+  }
+  if (onDay < seen.from) seen.from = onDay;
+  if (onDay > seen.to) seen.to = onDay;
+  return key;
 }
 
 export function countSkip(payload: ImportPayload, reason: string, n = 1): void {
@@ -155,7 +227,6 @@ export function sourceFor(file: AthleticStandardFileT, spec: WriterSpec): string
   );
   if (existing) {
     existing.detail = spec.detail;
-    if (spec.device) recordDevice(existing, spec.device);
     return existing.id;
   }
 
@@ -169,16 +240,43 @@ export function sourceFor(file: AthleticStandardFileT, spec: WriterSpec): string
     ...(spec.sensor ? { sensor: spec.sensor } : {}),
     detail: spec.detail,
   };
-  if (spec.device) recordDevice(source, spec.device);
   file.sources.push(source);
   return source.id;
 }
 
-function recordDevice(source: SourceT, device: DeviceT): void {
-  if (Object.values(device).every((v) => v === undefined)) return;
-  const devices = source.devices ?? [];
-  if (!devices.some((d) => sameDevice(d, device))) devices.push(device);
-  source.devices = devices;
+/**
+ * Write the device index onto the sources (D51).
+ *
+ * The window widens and the count adds, so importing the same export twice leaves
+ * both unchanged: the days do not move, and the second run adds no records to count.
+ * A new device under an existing writer appears as a new entry rather than replacing
+ * the old one, which is the seam a replaced watch is supposed to leave.
+ */
+function applyDeviceIndex(
+  file: AthleticStandardFileT,
+  index: Map<string, DeviceObservation>,
+): DeviceObservation[] {
+  const firstSeen: DeviceObservation[] = [];
+  for (const seen of index.values()) {
+    const source = file.sources.find((s) => s.id === seen.source);
+    if (!source) continue;
+    const devices = source.devices ?? [];
+    const existing = devices.find((d) => sameDevice(d, seen.device));
+    if (!existing) {
+      devices.push({ ...seen.device, from: seen.from, to: seen.to, n: seen.n });
+      source.devices = devices;
+      firstSeen.push(seen);
+      continue;
+    }
+    // An entry already here without a window came from an import before D51, or from
+    // the source being created moments ago. Either way the observed window is the
+    // first thing known about it.
+    existing.from = existing.from && existing.from < seen.from ? existing.from : seen.from;
+    existing.to = existing.to && existing.to > seen.to ? existing.to : seen.to;
+    existing.n = (existing.n ?? 0) + seen.n;
+    source.devices = devices;
+  }
+  return firstSeen;
 }
 
 /**
@@ -236,6 +334,13 @@ function hardKey(sig: HardSignalT): string {
   return sig.type === "vendor_score" ? `${base}|${sig.metric}` : base;
 }
 
+/** What a source is writing, at the grain a reader would call a quantity (D52). */
+function quantityLabel(sig: HardSignalT): string {
+  if (sig.type === "vendor_score") return `${sig.source}|vendor_score:${sig.metric}`;
+  if (sig.type === "series_ref") return `${sig.source}|series:${sig.quantity}`;
+  return `${sig.source}|${sig.type}`;
+}
+
 /** Soft signals have no source, so their text is what distinguishes them. */
 function softKey(sig: SoftSignalT): string {
   return `${sig.type}|${sig.reported_at}|${sig.note ?? ""}`;
@@ -254,9 +359,14 @@ export function mergePayload(
   file: AthleticStandardFileT,
   payload: ImportPayload,
   groupRefs: SeriesRefT[] = [],
+  knownSources: ReadonlySet<string> = new Set(file.sources.map((s) => s.id)),
 ): MergeSummary {
   const added = new Map<string, Map<string, number>>();
   let duplicates = 0;
+
+  // Snapshotted before anything is written, because the coverage records are replaced
+  // a few lines down and a quantity that was already here would look new afterwards.
+  const knownQuantities = new Set(file.hard_signals.map(quantityLabel));
 
   const existingKeys = new Set(file.hard_signals.map(hardKey));
 
@@ -287,6 +397,11 @@ export function mergePayload(
     }
     existingKeys.add(key);
     file.hard_signals.push(sig);
+    // Counted here rather than at parse time, so re-importing an export the file
+    // already holds leaves every device's count exactly where it was (D51).
+    const deviceKey = payload.deviceOf.get(sig);
+    const seen = deviceKey ? payload.deviceIndex.get(deviceKey) : undefined;
+    if (seen) seen.n++;
     const label = sig.type === "vendor_score" ? `vendor_score:${sig.metric}` : sig.type;
     const bySource = added.get(sig.source) ?? new Map<string, number>();
     bySource.set(label, (bySource.get(label) ?? 0) + 1);
@@ -318,9 +433,22 @@ export function mergePayload(
     file.sources.filter((s) => involved.has(s.id)).map((s) => [s.id, describeSource(s)]),
   );
 
+  const newDevices = applyDeviceIndex(file, payload.deviceIndex);
+  const firstSeen: FirstAppearances = {
+    sources: [...involved].filter((id) => !knownSources.has(id)).sort(),
+    devices: newDevices.map(({ source, device }) => ({ source, device })),
+    quantities: [...added]
+      .flatMap(([source, byType]) => [...byType.keys()].map((type) => ({ source, type })))
+      .concat(groupRefs.map((r) => ({ source: r.source, type: `series:${r.quantity}` })))
+      .filter(({ source, type }) => !knownQuantities.has(`${source}|${type}`))
+      .map(({ source, type }) => ({ source, quantity: type }))
+      .sort((a, b) => `${a.source}${a.quantity}`.localeCompare(`${b.source}${b.quantity}`)),
+  };
+
   return {
     added,
     sourceDetails,
+    firstSeen,
     movedToSeries,
     duplicates,
     softAdded,
@@ -340,6 +468,42 @@ export function describeSource(source: SourceT): string {
     return `${source.writer}${sensor}`;
   }
   return source.detail ?? source.kind;
+}
+
+/** The same summary as `renderMergeSummary`, as data (D47). */
+export function mergeSummaryAsJson(summary: MergeSummary, label: string): Record<string, unknown> {
+  return {
+    imported: label,
+    added: Object.fromEntries(
+      [...summary.added].map(([source, byType]) => [source, Object.fromEntries(byType)]),
+    ),
+    sources: Object.fromEntries(summary.sourceDetails),
+    first_seen: summary.firstSeen,
+    soft_signals_added: summary.softAdded,
+    duplicates_skipped: summary.duplicates + summary.softDuplicates,
+    moved_to_series: summary.movedToSeries,
+    series_files_written: summary.seriesWritten.length,
+    series_coverage: summary.coverage.map((ref) => ({
+      quantity: ref.quantity,
+      source: ref.source,
+      unit: ref.unit,
+      coverage: {
+        n: ref.n,
+        from: ref.from,
+        to: ref.to,
+        days_present: ref.days,
+        days_expected: daysBetween(ref.from, ref.to),
+        source: ref.source,
+        rule: RULES.dailySummary(ref.quantity),
+      },
+    })),
+    skipped: Object.fromEntries(
+      [...summary.skipped].map(([reason, count]) => [
+        reason,
+        { count, example: summary.skipExamples.get(reason) ?? null },
+      ]),
+    ),
+  };
 }
 
 /** The summary printed after an import. */
@@ -393,6 +557,24 @@ export function renderMergeSummary(summary: MergeSummary, label: string): string
           `${ref.n} sample${ref.n === 1 ? "" : "s"} across ` +
           `${ref.days} day${ref.days === 1 ? "" : "s"} (${span})`,
       );
+    }
+  }
+
+  // First appearances are called out because they are the moments a number moves for
+  // a reason outside the athlete: a new watch, a vendor renaming its writer, a route
+  // that started carrying something new (D52). Folded into a total, they are invisible.
+  const { sources: newSources, devices: newDevices, quantities: newQuantities } = summary.firstSeen;
+  if (newSources.length > 0 || newDevices.length > 0 || newQuantities.length > 0) {
+    lines.push(`  first seen in this import:`);
+    for (const id of newSources) {
+      lines.push(`    new source ${id} (${summary.sourceDetails.get(id) ?? "unknown writer"})`);
+    }
+    for (const { source, device } of newDevices) {
+      const label = [device.name, device.hardware ?? device.model].filter(Boolean).join(" ");
+      lines.push(`    new device under ${source}: ${label || "unnamed device"}`);
+    }
+    for (const { source, quantity } of newQuantities) {
+      lines.push(`    ${source} has not written ${quantity} before`);
     }
   }
 
