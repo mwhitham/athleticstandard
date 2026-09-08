@@ -165,9 +165,27 @@ describe("ath grade — measuring the prediction against what happened", () => {
     const old = prediction({ id: "p-0", created_at: "2026-07-01T08:00:00Z" });
     old.actual = { result: { duration_s: 300 }, recorded_at: "2026-07-02T17:00:00Z" };
     old.grade = { signed_error: -10, abs_error_pct: 3.3, in_range: false };
-    const { file } = grade(athlete([old, prediction()]), "4:52");
+    const already = athlete([old, prediction()]);
+    // The graded prediction points at a result the file holds, which is the rule the
+    // grade itself has to satisfy (D64).
+    already.hard_signals.push({
+      type: "benchmark_result",
+      benchmark: "fran",
+      recorded_at: "2026-07-02T17:00:00Z",
+      source: "manual-1",
+      result: { duration_s: 300 },
+    });
+    const { file } = grade(already, "4:52");
     expect(file.predictions.find((p) => p.id === "p-0")!.grade!.signed_error).toBe(-10);
     expect(file.predictions.find((p) => p.id === "p-1")!.grade!.in_range).toBe(true);
+  });
+
+  it("points the graded prediction at the result it was graded against (D64)", () => {
+    const { file } = grade(athlete([prediction()]), "4:52");
+    const p = file.predictions[0]!;
+    const result = file.hard_signals.find((s) => s.type === "benchmark_result")!;
+    expect(p.actual!.recorded_at).toBe(result.recorded_at);
+    expect(p.actual!.result).toEqual(result.result);
   });
 
   it("refuses an attempt dated before the prediction, and writes nothing", () => {
@@ -197,6 +215,103 @@ describe("ath grade — measuring the prediction against what happened", () => {
     });
     const { res } = grade(file, "4:52");
     expect(res.stdout).toContain("ath link fran@2026-08-10 17:15");
+  });
+});
+
+/** A file whose Fran result on the attempt day is already recorded. */
+function withResult(seconds: number, at = `${ATTEMPT_DAY}T17:30:00Z`): AthleticStandardFileT {
+  const file = athlete([prediction()]);
+  file.hard_signals.push({
+    type: "benchmark_result",
+    benchmark: "fran",
+    recorded_at: at,
+    source: "manual-1",
+    result: { duration_s: seconds },
+  });
+  return file;
+}
+
+describe("ath grade — a write, so it shows its work first (D65)", () => {
+  it("prints the summary of what it will write above the verdict", () => {
+    const { res } = grade(athlete([prediction()]), "4:52");
+    // Column widths shift with the longest label, so the padding is squeezed out.
+    const flat = res.stdout.replace(/[ \t]+/g, " ");
+    expect(flat).toContain("kind workout result");
+    expect(flat).toContain("score 4:52");
+    expect(flat).toContain("name fran");
+    expect(flat).toContain("grade against the prediction of 4:50 made on 2026-08-08");
+    // The summary comes first: the verdict is what the write causes, not what is
+    // being agreed to.
+    expect(flat.indexOf("kind workout result")).toBeLessThan(flat.indexOf("Predicted 4:50"));
+  });
+
+  it("writes nothing under --dry-run, and shows the question it would ask", () => {
+    const dir = dirWith(athlete([prediction()]));
+    const res = ath(["grade", "fran", "--actual", "4:52", "--date", ATTEMPT_DAY, "--dry-run"], dir);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("Save this? [y] yes  [n] no");
+    expect(res.stdout).toContain("nothing written (--dry-run)");
+    const file = read(dir);
+    expect(file.hard_signals.filter((s) => s.type === "benchmark_result")).toHaveLength(0);
+    expect(file.predictions[0]!.grade).toBeNull();
+  });
+
+  it("attaches the one session that day under --yes", () => {
+    const file = athlete([prediction()]);
+    file.hard_signals.push({
+      type: "workout_session",
+      start: `${ATTEMPT_DAY}T17:15:00Z`,
+      end: `${ATTEMPT_DAY}T17:45:00Z`,
+      source: "whoop-1",
+      aggregates: { activity: "crossfit" },
+    });
+    const { file: after } = grade(file, "4:52", ["--yes"]);
+    const result = after.hard_signals.find((s) => s.type === "benchmark_result")!;
+    expect(result.session).toEqual({ source: "whoop-1", start: `${ATTEMPT_DAY}T17:15:00Z` });
+  });
+
+  it("leaves the session unattached under --yes when two sessions could be it (D68)", () => {
+    const file = athlete([prediction()]);
+    for (const start of ["07:05", "17:15"]) {
+      file.hard_signals.push({
+        type: "workout_session",
+        start: `${ATTEMPT_DAY}T${start}:00Z`,
+        end: `${ATTEMPT_DAY}T${start === "07:05" ? "07:50" : "17:45"}:00Z`,
+        source: "whoop-1",
+        aggregates: { activity: "crossfit" },
+      });
+    }
+    const { res, file: after } = grade(file, "4:52", ["--yes"]);
+    const result = after.hard_signals.find((s) => s.type === "benchmark_result")!;
+    expect(result.session).toBeUndefined();
+    expect(res.stdout).toContain("picking one is a guess");
+  });
+});
+
+describe("ath grade — one attempt, one result (D67)", () => {
+  it("grades the result already logged rather than writing a second one", () => {
+    const { res, file } = grade(withResult(292), "4:52");
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("already logged on that day");
+    const results = file.hard_signals.filter((s) => s.type === "benchmark_result");
+    expect(results).toHaveLength(1);
+    expect(file.predictions[0]!.actual!.recorded_at).toBe(results[0]!.recorded_at);
+    expect(file.predictions[0]!.grade!.in_range).toBe(true);
+  });
+
+  it("refuses a different score on a day that already has a result", () => {
+    const dir = dirWith(withResult(281));
+    const res = ath(["grade", "fran", "--actual", "4:52", "--date", ATTEMPT_DAY], dir);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("already has a result on 2026-08-10: 4:41");
+    expect(res.stdout).toContain("--again");
+    expect(read(dir).hard_signals.filter((s) => s.type === "benchmark_result")).toHaveLength(1);
+  });
+
+  it("records a real second attempt when --again says so", () => {
+    const { res, file } = grade(withResult(281), "4:52", ["--again"]);
+    expect(res.code).toBe(0);
+    expect(file.hard_signals.filter((s) => s.type === "benchmark_result")).toHaveLength(2);
   });
 });
 

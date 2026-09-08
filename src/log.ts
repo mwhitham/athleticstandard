@@ -182,6 +182,19 @@ export function sessionCandidates(file: AthleticStandardFileT, recordedAt: strin
     );
 }
 
+/**
+ * Who, if anyone, will answer the one question.
+ *
+ * `ask` — a terminal is there, the question will be put, and the reader can change
+ * the answer. `assume` — `--yes` was passed, so the caller has agreed in advance to
+ * what the tool would have shown. `none` — no terminal and no `--yes`, so there is
+ * nobody to agree to anything.
+ *
+ * These are three different amounts of consent, and the session match respects the
+ * difference (D68).
+ */
+export type Confirm = "ask" | "assume" | "none";
+
 export interface LogInput {
   /** What the person typed or pasted, or the JSON an agent passed. */
   text: string;
@@ -190,12 +203,59 @@ export interface LogInput {
   date?: string | undefined;
   scaling?: "rx" | "scaled" | undefined;
   now?: Date | undefined;
-  /**
-   * Whether the one question can be put to somebody. False with no terminal and no
-   * `--yes`, in which case a session match is left for `ath link` or the next import
-   * rather than written on nobody's say-so.
-   */
-  confirmable?: boolean | undefined;
+  confirm?: Confirm | undefined;
+  /** Record a second result on a day that already has one, on purpose (D67). */
+  again?: boolean | undefined;
+}
+
+/** A result already recorded for this benchmark on this day, if there is one. */
+export function existingResultOn(
+  file: AthleticStandardFileT,
+  benchmark: string,
+  day: string,
+): Extract<HardSignalT, { type: "benchmark_result" }> | undefined {
+  return file.hard_signals.find(
+    (s): s is Extract<HardSignalT, { type: "benchmark_result" }> =>
+      s.type === "benchmark_result" && s.benchmark === benchmark && s.recorded_at.slice(0, 10) === day,
+  );
+}
+
+/**
+ * Refuse a second result for a benchmark on a day that already has one.
+ *
+ * Almost every repeat is the same command run twice, and the cost is not a tidiness
+ * one: a duplicate result is counted by every baseline, every trend and every
+ * prediction that reads the benchmark's history, and nothing about the file looks
+ * wrong afterwards. A real second attempt says so with `--again` (D67).
+ */
+export function refuseDuplicate(
+  file: AthleticStandardFileT,
+  benchmark: string,
+  day: string,
+  again: boolean | undefined,
+): void {
+  if (again) return;
+  const clash = existingResultOn(file, benchmark, day);
+  if (!clash) return;
+  throw new LogRefusal(
+    `'${benchmark}' already has a result on ${day}: ${describeScore(clash.result)}, recorded at ` +
+      `${clash.recorded_at.slice(11, 16)}. Two results for one attempt would both be counted by ` +
+      `every baseline and every prediction after it. If you really did it twice that day, pass ` +
+      `--again.`,
+  );
+}
+
+/**
+ * Which session the tool will attach without being told, given who is answering.
+ *
+ * One candidate under `--yes` is the ordinary case and is attached. Two candidates
+ * under `--yes` is a choice between two real efforts, and `--yes` means "I agree with
+ * what you would have shown me", not "choose for me" (D68).
+ */
+function defaultCandidate(confirm: Confirm, candidates: SessionCandidate[]): number {
+  if (confirm === "ask") return candidates.length > 0 ? 0 : -1;
+  if (confirm === "assume") return candidates.length === 1 ? 0 : -1;
+  return -1;
 }
 
 /** Is this an agent's structured input rather than something a person typed? */
@@ -212,18 +272,19 @@ export function looksLikeJson(text: string): boolean {
  */
 export function buildDraft(file: AthleticStandardFileT, input: LogInput): LogDraft {
   const now = input.now ?? new Date();
+  const confirm: Confirm = input.confirm ?? "ask";
   const draft: LogDraft = {
     hard: [],
     soft: [],
     predictions: [],
     newBenchmarks: [],
     candidates: [],
-    chosenCandidate: input.confirmable === false ? -1 : 0,
+    chosenCandidate: -1,
     blocks: [],
   };
 
   if (looksLikeJson(input.text)) {
-    buildFromJson(file, draft, input.text, now);
+    buildFromJson(file, draft, input.text, now, confirm, input.again);
     return draft;
   }
 
@@ -324,6 +385,8 @@ export function buildDraft(file: AthleticStandardFileT, input: LogInput): LogDra
       );
     }
 
+    refuseDuplicate(file, id, day, input.again);
+
     const candidates = sessionCandidates(file, recordedAt);
     const result: HardSignalT = {
       type: "benchmark_result",
@@ -335,31 +398,40 @@ export function buildDraft(file: AthleticStandardFileT, input: LogInput): LogDra
     };
     draft.hard.push(result);
     draft.candidates = candidates;
+    draft.chosenCandidate = defaultCandidate(confirm, candidates);
 
     const block = [
       { label: "kind", value: "workout result" },
       { label: "date", value: `${day}${dateNote}` },
       { label: "score", value: entry.scoreText },
       { label: "name", value: `${id}${existing ? "" : why || "  (new benchmark)"}` },
+      sessionBlock(draft, confirm),
+      { label: "workout", value: "saved word for word" },
     ];
-    if (candidates.length === 0) {
-      block.push({
-        label: "session",
-        value: "no device session that day yet — link it after your next import",
-      });
-    } else if (draft.chosenCandidate < 0) {
-      block.push({
-        label: "session",
-        value: `${candidates[0]!.label} — not linked, because there is nobody to confirm it with`,
-      });
-    } else {
-      block.push({ label: "session", value: candidates[0]!.label });
-    }
-    block.push({ label: "workout", value: "saved word for word" });
     draft.blocks.push(block);
   }
 
   return draft;
+}
+
+/** How the session line reads in the summary, including why nothing was chosen. */
+export function sessionBlock(draft: LogDraft, confirm: Confirm): { label: string; value: string } {
+  const { candidates, chosenCandidate } = draft;
+  if (candidates.length === 0) {
+    return {
+      label: "session",
+      value: "no device session that day yet — link it after your next import",
+    };
+  }
+  if (chosenCandidate >= 0) return { label: "session", value: candidates[chosenCandidate]!.label };
+  return {
+    label: "session",
+    value:
+      confirm === "assume"
+        ? `${candidates.length} sessions that day — not linked, because picking one is a guess. ` +
+          `Attach it with \`ath link\``
+        : `${candidates[0]!.label} — not linked, because there is nobody to confirm it with`,
+  };
 }
 
 /**
@@ -392,7 +464,14 @@ function checkedDay(day: string): string {
  * self-reported, and `predicted` with `confidence` and no `type` is a prediction.
  * The three do not overlap, so nothing here reads words.
  */
-function buildFromJson(file: AthleticStandardFileT, draft: LogDraft, text: string, now: Date): void {
+function buildFromJson(
+  file: AthleticStandardFileT,
+  draft: LogDraft,
+  text: string,
+  now: Date,
+  confirm: Confirm,
+  again: boolean | undefined,
+): void {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -413,6 +492,9 @@ function buildFromJson(file: AthleticStandardFileT, draft: LogDraft, text: strin
         grade: null,
         miss_analysis: null,
         ...record,
+        // The version is a fact the tool knows and the agent would be guessing at, so
+        // the tool writes it and ignores what was passed (D66).
+        ath_version: ATHLETIC_STANDARD_VERSION,
       });
       if (!prediction.success) throw new LogRefusal(explain("prediction", prediction.error.issues));
       if (!file.benchmarks.some((b) => b.id === prediction.data.benchmark)) {
@@ -421,12 +503,25 @@ function buildFromJson(file: AthleticStandardFileT, draft: LogDraft, text: strin
             `or log a result for it first.`,
         );
       }
+      // A prediction is a claim, and a claim with no author cannot be weighed against
+      // the next one. The model and the program it ran in are things only the caller
+      // knows, so they are asked for rather than inferred (D66).
+      if (!prediction.data.agent?.trim()) {
+        throw new LogRefusal(
+          `that prediction does not say which agent made it, so nothing was written. ` +
+            `Add "agent": "<the program you are running in, e.g. Claude Code>" alongside ` +
+            `"model". Six months from now, a prediction nobody signed cannot be weighed ` +
+            `against the ones that were right.`,
+        );
+      }
       draft.predictions.push(prediction.data);
       draft.blocks.push([
         { label: "kind", value: "prediction" },
         { label: "benchmark", value: prediction.data.benchmark },
         { label: "predicted", value: describeScore(prediction.data.predicted) },
         { label: "confidence", value: prediction.data.confidence },
+        { label: "by", value: `${prediction.data.agent} running ${prediction.data.model}` },
+        { label: "ath", value: ATHLETIC_STANDARD_VERSION },
       ]);
       continue;
     }
@@ -467,18 +562,20 @@ function buildFromJson(file: AthleticStandardFileT, draft: LogDraft, text: strin
             `or include a benchmarks entry first.`,
         );
       }
+      refuseDuplicate(file, signal.benchmark, signal.recorded_at.slice(0, 10), again);
       draft.candidates = signal.session ? [] : sessionCandidates(file, signal.recorded_at);
+      draft.chosenCandidate = defaultCandidate(confirm, draft.candidates);
       draft.blocks.push([
         { label: "kind", value: "workout result" },
         { label: "date", value: signal.recorded_at.slice(0, 10) },
         { label: "score", value: describeScore(signal.result) },
         { label: "name", value: signal.benchmark },
-        {
-          label: "session",
-          value: signal.session
-            ? `${signal.session.start.slice(11, 16)} on ${signal.session.source}`
-            : (draft.candidates[0]?.label ?? "none that day"),
-        },
+        signal.session
+          ? {
+              label: "session",
+              value: `${signal.session.start.slice(11, 16)} on ${signal.session.source}`,
+            }
+          : sessionBlock(draft, confirm),
       ]);
       continue;
     }

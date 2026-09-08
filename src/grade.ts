@@ -15,6 +15,7 @@ import {
   MissAnalysis,
   type AthleticStandardFileT,
   type BenchmarkT,
+  type GradeT,
   type HardSignalT,
   type PredictionT,
   type ScoreT,
@@ -33,7 +34,17 @@ import {
   secondsFromClock,
 } from "./score.js";
 import { manualSource, shiftDay, signalAt, TRACKED_TYPES } from "./signals.js";
-import { localTimestamp, noonOn, today } from "./log.js";
+import {
+  applyDraft,
+  existingResultOn,
+  localTimestamp,
+  noonOn,
+  sessionBlock,
+  sessionCandidates,
+  today,
+  type Confirm,
+  type LogDraft,
+} from "./log.js";
 
 /** Raised when the file cannot be graded, with the remedy in the message. */
 export class GradeRefusal extends Error {
@@ -72,18 +83,22 @@ export interface Dossier {
 
 export interface GradeOutcome {
   benchmark: BenchmarkT;
-  /** The result that was logged, whether or not a prediction was open. */
+  /** Everything to be written, so the result goes in through `ath log`'s path (D65). */
+  draft: LogDraft;
+  /** The result the grade points at, whether newly written or already in the file. */
   result: Extract<HardSignalT, { type: "benchmark_result" }>;
+  /** True when the result was already logged and is being graded rather than rewritten. */
+  reusedExisting: boolean;
   actualText: string;
   /** Null when nothing was open, in which case the result is simply logged. */
   prediction: PredictionT | null;
+  /** Computed, and attached to the prediction only by `applyGrade`. */
+  grade: GradeT | null;
   severity: Severity | null;
   /** How the error reads in the benchmark's own unit, e.g. "3s" or "12 reps". */
   errorText: string;
   /** Present on a miss. A hit gets no dossier, on purpose. */
   dossier: Dossier | null;
-  /** Sessions that day the result is not linked to yet. */
-  unlinkedSessions: string[];
 }
 
 /**
@@ -150,45 +165,61 @@ function describe(score: ScoreT, scoreType: BenchmarkT["score_type"]): string {
   return `${value} kg`;
 }
 
+export interface GradeOptions {
+  date?: string | undefined;
+  scaling?: "rx" | "scaled" | undefined;
+  now?: Date | undefined;
+  confirm?: Confirm | undefined;
+  /** Grade a second attempt on a day that already has a result (D67). */
+  again?: boolean | undefined;
+}
+
 /**
- * Grade the attempt, writing the result and the grade into the file.
+ * Work out everything the grade will write, and write none of it.
  *
- * The caller validates and saves, the same way `ath log` works — one write path, one
- * place the file is checked before it lands (D55).
+ * Two halves, the same way `ath log` works: this one decides, `applyGrade` commits,
+ * and in between the reader sees what is about to happen and says yes. Grading is a
+ * write like any other, and a command that writes should not be the one command that
+ * does it without showing its work first (D65).
  */
-export function gradeAttempt(
+export function planGrade(
   file: AthleticStandardFileT,
   athleteFilePath: string,
   benchmark: BenchmarkT,
   actualText: string,
-  options: { date?: string | undefined; scaling?: "rx" | "scaled" | undefined; now?: Date | undefined } = {},
+  options: GradeOptions = {},
 ): GradeOutcome {
   const now = options.now ?? new Date();
   const day = options.date ?? today(now);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(`${day}T00:00:00Z`))) {
     throw new GradeRefusal(`--date takes a day written as YYYY-MM-DD, not '${day}'.`);
   }
-  const recordedAt = day === today(now) ? localTimestamp(now) : noonOn(day);
 
   const { score, text } = parseActual(actualText, benchmark.score_type);
 
-  const result: Extract<HardSignalT, { type: "benchmark_result" }> = {
+  // Logging the result and then grading it is the ordinary way round, so an existing
+  // result with this score is the one being graded rather than a duplicate to refuse.
+  // A different score on the same day means one of the two is wrong (D67).
+  const already = options.again ? undefined : existingResultOn(file, benchmark.id, day);
+  if (already && !sameScore(already.result, score, benchmark.score_type)) {
+    throw new GradeRefusal(
+      `'${benchmark.id}' already has a result on ${day}: ${describe(already.result, benchmark.score_type)}, ` +
+        `and you are now saying ${text}. One of the two is wrong, and writing both would leave ` +
+        `the file claiming each. Correct the score, or pass --again if you really attempted it twice.`,
+    );
+  }
+
+  const result: Extract<HardSignalT, { type: "benchmark_result" }> = already ?? {
     type: "benchmark_result",
     benchmark: benchmark.id,
-    recorded_at: recordedAt,
+    recorded_at: day === today(now) ? localTimestamp(now) : noonOn(day),
     source: manualSource(file),
     result: score,
     ...(options.scaling ? { scaling: options.scaling } : {}),
   };
-  file.hard_signals.push(result);
-  file.hard_signals.sort((a, b) => Date.parse(signalAt(a)) - Date.parse(signalAt(b)));
+  const recordedAt = result.recorded_at;
 
-  const unlinkedSessions = file.hard_signals
-    .filter(
-      (s): s is Extract<HardSignalT, { type: "workout_session" }> =>
-        s.type === "workout_session" && s.start.slice(0, 10) === day,
-    )
-    .map((s) => `${s.start.slice(11, 16)} on ${s.source}`);
+  const draft = draftFor(file, result, already !== undefined, options.confirm ?? "ask");
 
   // The most recent prediction still waiting on a result. Nothing open means there
   // was no claim to be right or wrong about, so the result is logged and that is all.
@@ -198,20 +229,21 @@ export function gradeAttempt(
     .pop();
 
   if (!open) {
-    return {
+    return withSummary({
       benchmark,
+      draft,
       result,
+      reusedExisting: already !== undefined,
       actualText: text,
       prediction: null,
+      grade: null,
       severity: null,
       errorText: "",
       dossier: null,
-      unlinkedSessions,
-    };
+    }, day, options);
   }
 
   if (Date.parse(recordedAt) < Date.parse(open.created_at)) {
-    file.hard_signals.splice(file.hard_signals.indexOf(result), 1);
     throw new GradeRefusal(
       `that attempt is dated ${day}, before the prediction was made on ` +
         `${open.created_at.slice(0, 10)}. A prediction has to come first, or it is not one. ` +
@@ -231,21 +263,101 @@ export function gradeAttempt(
     actual >= native(open.range.low, benchmark.score_type) &&
     actual <= native(open.range.high, benchmark.score_type);
 
-  open.actual = { result: score, recorded_at: recordedAt };
-  open.grade = { signed_error: signed, abs_error_pct: absPct, in_range: inRange };
-
   const severity: Severity = inRange ? "hit" : absPct < 5 ? "minor" : absPct <= 15 ? "significant" : "severe";
 
-  return {
+  return withSummary({
     benchmark,
+    draft,
     result,
+    reusedExisting: already !== undefined,
     actualText: text,
     prediction: open,
+    grade: { signed_error: signed, abs_error_pct: absPct, in_range: inRange },
     severity,
     errorText: amountIn(Math.abs(signed), benchmark.score_type),
     dossier: severity === "hit" ? null : buildDossier(file, athleteFilePath, recordedAt),
-    unlinkedSessions,
+  }, day, options);
+}
+
+/**
+ * What the reader sees before answering. Every guess is on the screen first (D56).
+ *
+ * The grade itself is not here. It is the consequence of the write rather than part
+ * of it, and printing the verdict above the question would be asking permission for
+ * something already said.
+ */
+function withSummary(outcome: GradeOutcome, day: string, options: GradeOptions): GradeOutcome {
+  const kind = outcome.benchmark.score_type;
+  const block = [
+    { label: "kind", value: "workout result" },
+    { label: "date", value: `${day}${day === today(options.now ?? new Date()) ? "  (today)" : ""}` },
+    { label: "score", value: outcome.actualText },
+    { label: "name", value: outcome.benchmark.id },
+  ];
+  if (outcome.reusedExisting) {
+    block.push({
+      label: "result",
+      value: "already logged on that day, so it is graded rather than written again",
+    });
+  } else {
+    block.push(sessionBlock(outcome.draft, options.confirm ?? "ask"));
+  }
+  block.push({
+    label: "grade",
+    value: outcome.prediction
+      ? `against the prediction of ${describe(outcome.prediction.predicted, kind)} made on ` +
+        `${outcome.prediction.created_at.slice(0, 10)}`
+      : "nothing to grade — no prediction is open on this benchmark",
+  });
+  outcome.draft.blocks = [block];
+  return outcome;
+}
+
+/**
+ * Commit the grade. The caller validates and saves, the same as every other write.
+ *
+ * The result goes in through `applyDraft`, so it picks up the session link, the sort
+ * order and the manual source from the one place that does those (D55).
+ */
+export function applyGrade(file: AthleticStandardFileT, outcome: GradeOutcome): void {
+  applyDraft(file, outcome.draft);
+  if (outcome.prediction && outcome.grade) {
+    // `recorded_at` and the benchmark are what identify the result, so the prediction
+    // now points at a record the file holds rather than holding a copy of it (D64).
+    outcome.prediction.actual = {
+      result: outcome.result.result,
+      recorded_at: outcome.result.recorded_at,
+    };
+    outcome.prediction.grade = outcome.grade;
+  }
+}
+
+/** The result as a draft, so it is written the way `ath log` writes one. */
+function draftFor(
+  file: AthleticStandardFileT,
+  result: Extract<HardSignalT, { type: "benchmark_result" }>,
+  reused: boolean,
+  confirm: Confirm,
+): LogDraft {
+  const draft: LogDraft = {
+    // A result already in the file is written again by nobody. Only the grade is new.
+    hard: reused ? [] : [result],
+    soft: [],
+    predictions: [],
+    newBenchmarks: [],
+    candidates: result.session ? [] : sessionCandidates(file, result.recorded_at),
+    chosenCandidate: -1,
+    blocks: [],
   };
+  if (!reused && draft.candidates.length > 0) {
+    draft.chosenCandidate = confirm === "ask" ? 0 : confirm === "assume" && draft.candidates.length === 1 ? 0 : -1;
+  }
+  return draft;
+}
+
+/** Do two scores agree in the unit this benchmark is scored by? */
+function sameScore(a: ScoreT, b: ScoreT, scoreType: BenchmarkT["score_type"]): boolean {
+  return nativeValue(a, scoreType) === nativeValue(b, scoreType);
 }
 
 /**
@@ -343,15 +455,20 @@ export function renderGrade(outcome: GradeOutcome): string {
   const lines: string[] = [];
   const kind = outcome.benchmark.score_type;
 
-  if (!outcome.prediction) {
-    lines.push(`logged ${outcome.actualText} on '${outcome.benchmark.id}'.`);
+  if (!outcome.prediction || !outcome.grade) {
+    lines.push(
+      outcome.reusedExisting
+        ? `'${outcome.benchmark.id}' already had ${outcome.actualText} recorded on ` +
+          `${outcome.result.recorded_at.slice(0, 10)}, so nothing was written.`
+        : `logged ${outcome.actualText} on '${outcome.benchmark.id}'.`,
+    );
     lines.push(`No prediction was open for it, so there is nothing to grade.`);
     lines.push(...sessionHint(outcome));
     return lines.join("\n");
   }
 
   const p = outcome.prediction;
-  const grade = p.grade!;
+  const grade = outcome.grade;
   const range = p.range
     ? `${describe(p.range.low, kind)}–${describe(p.range.high, kind)}`
     : null;
@@ -424,13 +541,20 @@ export function renderGrade(outcome: GradeOutcome): string {
   return lines.join("\n");
 }
 
+/**
+ * The remaining session, when one was offered and not taken.
+ *
+ * The match is offered before the write, the same as `ath log` (D65), so this only
+ * fires where nobody could be asked or where the answer was no.
+ */
 function sessionHint(outcome: GradeOutcome): string[] {
-  if (outcome.result.session || outcome.unlinkedSessions.length === 0) return [];
+  const { candidates, chosenCandidate } = outcome.draft;
+  if (outcome.result.session || chosenCandidate >= 0 || candidates.length === 0) return [];
   return [
     `A device session that day is not linked to this result: ` +
-      `${outcome.unlinkedSessions.join(", ")}. Attach it with ` +
+      `${candidates.map((c) => c.label).join(", ")}. Attach it with ` +
       `\`ath link ${outcome.benchmark.id}@${outcome.result.recorded_at.slice(0, 10)} ` +
-      `${outcome.unlinkedSessions[0]!.slice(0, 5)}\`.`,
+      `${candidates[0]!.start.slice(11, 16)}\`.`,
   ];
 }
 
@@ -460,15 +584,21 @@ function describeSignal(sig: HardSignalT): string {
   return `${sig.source} ${sig.type}`;
 }
 
-export function gradeAsJson(outcome: GradeOutcome): Record<string, unknown> {
+export function gradeAsJson(outcome: GradeOutcome, written: boolean): Record<string, unknown> {
   return {
+    written,
     benchmark: outcome.benchmark.id,
     score_type: outcome.benchmark.score_type,
     result: outcome.result,
+    result_already_logged: outcome.reusedExisting,
     prediction: outcome.prediction,
     severity: outcome.severity,
     dossier: outcome.dossier,
-    unlinked_sessions: outcome.unlinkedSessions,
+    session_candidates: outcome.draft.candidates,
+    session_chosen:
+      outcome.draft.chosenCandidate < 0
+        ? null
+        : (outcome.draft.candidates[outcome.draft.chosenCandidate] ?? null),
   };
 }
 

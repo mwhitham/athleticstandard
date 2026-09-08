@@ -41,15 +41,17 @@ import {
   renderWritten,
   today,
   waitingMatches,
+  type Confirm,
 } from "./log.js";
 import { evidenceFor } from "./context.js";
 import { benchmarkOrRefuse, evidenceAsJson, PredictRefusal, renderEvidence } from "./predict.js";
 import {
   analysisAsJson,
+  applyGrade,
   attachAnalysis,
   gradeAsJson,
-  gradeAttempt,
   GradeRefusal,
+  planGrade,
   renderGrade,
 } from "./grade.js";
 import { bareGuide, EXAMPLES, GROUPS, HELP_FOOTER } from "./help.js";
@@ -258,6 +260,7 @@ program
   .option("--scaling <rx|scaled>", "whether the workout was done as written, or scaled")
   .option("--file <path>", "write to a file other than the one in this folder")
   .option("-y, --yes", "write it without asking — for scripts, and when you are sure")
+  .option("--again", "record a second result on a day that already has one")
   .option("--dry-run", "show what would be written, and write nothing")
   .option("--json", "structured output, for an agent rather than a person")
   .action(async (words: string[], opts: LogOptions) => {
@@ -280,14 +283,6 @@ program
       );
     }
 
-    // A session match is made by asking. Without a terminal and without --yes there
-    // is nobody to ask, so the result is written unlinked and `ath link` or the next
-    // import picks it up (D53).
-    // --dry-run counts, because it is a preview of the interactive run and writes
-    // nothing either way.
-    const confirmable =
-      Boolean(opts.yes) || Boolean(opts.dryRun) || (process.stdout.isTTY === true && !opts.json);
-
     let draft;
     try {
       draft = buildDraft(file, {
@@ -295,7 +290,8 @@ program
         benchmark: opts.benchmark,
         date: opts.date,
         scaling: opts.scaling,
-        confirmable,
+        again: opts.again,
+        confirm: whoAnswers(opts),
       });
     } catch (e) {
       if (e instanceof LogRefusal) return fail((e as Error).message);
@@ -495,8 +491,11 @@ program
   .option("--scaling <rx|scaled>", "whether the workout was done as written, or scaled")
   .option("--analysis <json>", "the agent's write-up of a miss, after it has read the dossier")
   .option("--file <path>", "change a file other than the one in this folder")
+  .option("-y, --yes", "write it without asking — for scripts, and when you are sure")
+  .option("--again", "record a second attempt on a day that already has a result")
+  .option("--dry-run", "show what would be written, and write nothing")
   .option("--json", "structured output, for an agent rather than a person")
-  .action((benchmarkId: string, opts: GradeOptions) => {
+  .action(async (benchmarkId: string, opts: GradeCliOptions) => {
     const path = findOrFail(opts.file);
     let file: AthleticStandardFileT;
     try {
@@ -522,18 +521,51 @@ program
 
     // Two calls, in the order the grading procedure runs: the result and the grade
     // first, then the analysis an agent wrote after reading the dossier (D62).
+    const confirm = whoAnswers(opts);
     try {
+      const outcome = opts.actual
+        ? planGrade(file, path, benchmark, opts.actual, {
+            date: opts.date,
+            scaling: opts.scaling,
+            again: opts.again,
+            confirm,
+          })
+        : null;
+
+      // Grading writes, so it shows what it will write and asks once, the same as
+      // `ath log`. The verdict comes after, because it is the consequence of the
+      // write rather than something to agree to (D65).
+      if (outcome && !opts.json) console.log(renderDraft(outcome.draft));
+
+      if (opts.dryRun) {
+        if (opts.json && outcome) console.log(JSON.stringify(gradeAsJson(outcome, false), null, 2));
+        else if (outcome) console.log(`\n${renderQuestion(outcome.draft)}\nnothing written (--dry-run)`);
+        else console.log("nothing written (--dry-run)");
+        return;
+      }
+
+      if (outcome && confirm === "ask" && !opts.yes && !opts.json && process.stdout.isTTY) {
+        const answer = await askOnTerminal(`\n${renderQuestion(outcome.draft)} `);
+        if (answer === null) {
+          return fail(
+            `there is no terminal to ask on, so nothing was written. ` +
+              `Pass --yes to write it without the question, or --dry-run to see what it would be.`,
+          );
+        }
+        const choice = Number(answer);
+        if (Number.isInteger(choice) && choice >= 2 && choice <= outcome.draft.candidates.length) {
+          outcome.draft.chosenCandidate = choice - 1;
+        } else if (!/^y(es)?$/i.test(answer)) {
+          console.log("nothing written");
+          return;
+        }
+      }
+
       const written =
         opts.analysis !== undefined
           ? analysisAsJson(attachAnalysis(file, benchmark, opts.analysis))
           : null;
-
-      const outcome = opts.actual
-        ? gradeAttempt(file, path, benchmark, opts.actual, {
-            date: opts.date,
-            scaling: opts.scaling,
-          })
-        : null;
+      if (outcome) applyGrade(file, outcome);
 
       const validation = validateAthleticStandardFile(file);
       if (!validation.valid) {
@@ -547,11 +579,15 @@ program
 
       if (opts.json) {
         console.log(
-          JSON.stringify({ ...(outcome ? gradeAsJson(outcome) : {}), ...(written ?? {}) }, null, 2),
+          JSON.stringify(
+            { ...(outcome ? gradeAsJson(outcome, true) : {}), ...(written ?? {}) },
+            null,
+            2,
+          ),
         );
         return;
       }
-      if (outcome) console.log(renderGrade(outcome));
+      if (outcome) console.log(`\n${renderGrade(outcome)}`);
       if (written) {
         console.log(
           `analysis attached to '${written.prediction}'` +
@@ -560,6 +596,7 @@ program
       }
     } catch (e) {
       if (e instanceof GradeRefusal) return fail((e as Error).message);
+      if (e instanceof LogRefusal) return fail((e as Error).message);
       throw e;
     }
   });
@@ -764,12 +801,15 @@ async function offerWaitingMatches(waiting: ReturnType<typeof waitingMatches>): 
   return linked;
 }
 
-interface GradeOptions {
+interface GradeCliOptions {
   actual?: string;
   date?: string;
   scaling?: "rx" | "scaled";
   analysis?: string;
   file?: string;
+  yes?: boolean;
+  again?: boolean;
+  dryRun?: boolean;
   json?: boolean;
 }
 
@@ -779,8 +819,22 @@ interface LogOptions {
   scaling?: "rx" | "scaled";
   file?: string;
   yes?: boolean;
+  again?: boolean;
   dryRun?: boolean;
   json?: boolean;
+}
+
+/**
+ * Who will answer the one question, which is what the session match turns on (D68).
+ *
+ * `--yes` is agreement in advance, not permission to choose between two real
+ * sessions. `--dry-run` previews the interactive run, so it answers the same way a
+ * terminal would. Everything else has nobody to ask.
+ */
+function whoAnswers(opts: { yes?: boolean; dryRun?: boolean; json?: boolean }): Confirm {
+  if (opts.yes) return "assume";
+  if (opts.dryRun || (process.stdout.isTTY === true && !opts.json)) return "ask";
+  return "none";
 }
 
 /** Everything piped or pasted, to the end. Empty when nothing is coming. */

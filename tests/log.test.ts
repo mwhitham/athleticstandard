@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { AthleticStandardFileT, HardSignalT } from "../src/schema.js";
+import { ATHLETIC_STANDARD_VERSION, type AthleticStandardFileT, type HardSignalT } from "../src/schema.js";
 import { readScore } from "../src/logparse.js";
 import { takeDate } from "../src/log.js";
 
@@ -147,21 +147,57 @@ describe("ath log — telling the four kinds apart (D57)", () => {
 
   it("takes a prediction only from an agent, and only in the prediction's shape", () => {
     const dir = newAthlete();
-    const payload = JSON.stringify({
-      id: "pred-2026-09-04-fran",
-      benchmark: "fran",
-      created_at: "2026-09-04T15:00:00Z",
-      predicted: { duration_s: 275 },
-      range: { low: { duration_s: 265 }, high: { duration_s: 290 } },
-      confidence: "moderate",
-      reasoning: "Last Fran 4:41 on 2026-06-02, HRV steady at 63ms.",
-      evidence_window: { from: "2026-06-01", to: "2026-09-04" },
-      model: "claude-sonnet-4-5",
-    });
-    const res = ath(["log"], dir, payload);
+    const res = ath(["log"], dir, JSON.stringify(predictionPayload()));
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("kind        prediction");
     expect(read(dir).predictions).toHaveLength(1);
+  });
+});
+
+/** A prediction has an author, and the tool knows its own version (D66). */
+function predictionPayload(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "pred-2026-09-04-fran",
+    benchmark: "fran",
+    created_at: "2026-09-04T15:00:00Z",
+    predicted: { duration_s: 275 },
+    range: { low: { duration_s: 265 }, high: { duration_s: 290 } },
+    confidence: "moderate",
+    reasoning: "Last Fran 4:41 on 2026-06-02, HRV steady at 63ms.",
+    evidence_window: { from: "2026-06-01", to: "2026-09-04" },
+    model: "claude-sonnet-4-5",
+    agent: "Claude Code",
+    ...over,
+  };
+}
+
+describe("ath log — who made the prediction (D66)", () => {
+  it("records the agent, the model and the version of ath that wrote it", () => {
+    const dir = newAthlete();
+    const res = ath(["log"], dir, JSON.stringify(predictionPayload()));
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("Claude Code running claude-sonnet-4-5");
+    const p = read(dir).predictions[0]!;
+    expect(p.agent).toBe("Claude Code");
+    expect(p.model).toBe("claude-sonnet-4-5");
+    expect(p.ath_version).toBe(ATHLETIC_STANDARD_VERSION);
+  });
+
+  it("refuses a prediction that does not say which agent made it", () => {
+    const dir = newAthlete();
+    const payload = predictionPayload();
+    delete payload.agent;
+    const res = ath(["log"], dir, JSON.stringify(payload));
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("does not say which agent made it");
+    expect(read(dir).predictions).toHaveLength(0);
+  });
+
+  it("writes its own version rather than the one it was handed", () => {
+    const dir = newAthlete();
+    const res = ath(["log"], dir, JSON.stringify(predictionPayload({ ath_version: "9.9.9" })));
+    expect(res.code).toBe(0);
+    expect(read(dir).predictions[0]!.ath_version).toBe(ATHLETIC_STANDARD_VERSION);
   });
 });
 
