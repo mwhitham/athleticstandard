@@ -57,7 +57,7 @@ describe("baselineFor", () => {
       { recorded_at: "2026-08-01T00:00:00Z", value: 50 },
       { recorded_at: "2026-08-30T00:00:00Z", value: 70 },
     ]);
-    const b = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1", 90);
+    const b = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1", { windowDays: 90 });
     expect(b).not.toBeNull();
     expect(b!.coverage.n).toBe(2);
     expect(b!.mean).toBe(60);
@@ -89,5 +89,42 @@ describe("baselineFor", () => {
   it("returns null for a source that never measured this type", () => {
     const file = fileWithHrv([{ recorded_at: "2026-08-01T06:00:00Z", value: 60 }]);
     expect(baselineFor(file, NO_SIDECARS, "hrv_rmssd", "oura-1")).toBeNull();
+  });
+});
+
+/**
+ * A backtest hides what happened next. It must not also change how the number is
+ * worked out, or it tests the tool instead of the reasoning (D69).
+ */
+describe("baselineFor with a day to stop at", () => {
+  const file = fileWithHrv([
+    { recorded_at: "2026-08-01T06:00:00Z", value: 40 },
+    { recorded_at: "2026-08-10T06:00:00Z", value: 60 },
+    { recorded_at: "2026-08-20T06:00:00Z", value: 80 },
+  ]);
+
+  it("hides readings after the day, and nothing else", () => {
+    const b = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1", { asOf: "2026-08-10" });
+    expect(b!.mean).toBe(50);
+    expect(b!.coverage.n).toBe(2);
+    expect(b!.coverage.to).toBe("2026-08-10");
+  });
+
+  it("gives the same answer as no cutoff when the cutoff is after the last reading", () => {
+    const open = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1");
+    const bounded = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1", { asOf: "2026-12-31" });
+    expect(bounded).toEqual(open);
+  });
+
+  it("states the same rule either way, so the two are comparable", () => {
+    const open = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1");
+    const bounded = baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1", { asOf: "2026-08-10" });
+    expect(bounded!.coverage.rule).toBe(open!.coverage.rule);
+  });
+
+  it("returns null when nothing was measured before the day", () => {
+    expect(
+      baselineFor(file, NO_SIDECARS, "hrv_rmssd", "whoop-1", { asOf: "2025-01-01" }),
+    ).toBeNull();
   });
 });

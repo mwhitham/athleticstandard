@@ -28,6 +28,20 @@ const day = (ts: string) => ts.slice(0, 10);
 /** Instant in milliseconds. Offset timestamps cannot be ordered as strings. */
 const instant = (ts: string): number => Date.parse(ts);
 
+export interface BaselineWindow {
+  windowDays?: number;
+  /**
+   * Hide everything after this day, for a backtest that cannot see the answer.
+   *
+   * It hides, and that is all it does. The window is still anchored on the latest
+   * reading, still measured back from that reading's own instant, still bounded
+   * before any sidecar is opened. A second way of computing the same number would
+   * mean `--as-of` changed the arithmetic as well as the data, and then a backtest
+   * would be testing the tool rather than the reasoning (D69).
+   */
+  asOf?: string | undefined;
+}
+
 /**
  * Mean/sd of a measurement over the trailing `windowDays` of data.
  *
@@ -46,10 +60,14 @@ export function baselineFor(
   athleteFilePath: string,
   type: string,
   source: string,
-  windowDays = 90,
+  options: BaselineWindow = {},
 ): Baseline | null {
-  const latestDay = latestReadingDay(file, athleteFilePath, type, source);
-  if (latestDay === null) return null;
+  const windowDays = options.windowDays ?? 90;
+  const asOf = options.asOf;
+
+  const seen = latestReadingDay(file, athleteFilePath, type, source);
+  if (seen === null) return null;
+  const latestDay = asOf !== undefined && asOf < seen ? asOf : seen;
 
   // A day wider than the window at each end, because a day is not an instant: the
   // exact cutoff is applied below, once the readings carry their own timestamps.

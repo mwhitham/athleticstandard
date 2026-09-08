@@ -219,19 +219,13 @@ export function evidenceFor(
     .sort((a, b) => a.reported_at.localeCompare(b.reported_at));
 
   // --- Section 3: long-range averages, per source and never pooled (D31) ---
+  // One baseline function, given a day to stop at. `--as-of` hides readings; it does
+  // not change how the mean is worked out (D69).
   const baselines: BaselineRow[] = [];
   for (const source of sources) {
     for (const type of TRACKED_TYPES) {
-      const b = baselineFor(file, athleteFilePath, type, source);
-      if (!b || b.coverage.to > asOf) {
-        // The baseline reads the latest data it can find, which after `--as-of` may be
-        // in the future. Recompute inside the window rather than showing an answer the
-        // athlete could not have had.
-        const bounded = boundedBaseline(file, athleteFilePath, type, source, asOf);
-        if (bounded) baselines.push(bounded);
-        continue;
-      }
-      baselines.push({ source, type, unit: unitOf(file, type, source), ...b });
+      const b = baselineFor(file, athleteFilePath, type, source, { asOf });
+      if (b) baselines.push({ source, type, unit: unitOf(file, type, source), ...b });
     }
   }
 
@@ -273,45 +267,6 @@ function unitOf(file: AthleticStandardFileT, type: string, source: string): stri
       s.type === "series_ref" && s.quantity === type && s.source === source,
   );
   return series?.unit ?? "";
-}
-
-/** A baseline computed as it stood on `asOf`, for a backtest that cannot cheat. */
-function boundedBaseline(
-  file: AthleticStandardFileT,
-  athleteFilePath: string,
-  type: string,
-  source: string,
-  asOf: string,
-): BaselineRow | null {
-  const readings = readingsFor(file, athleteFilePath, type, source, {
-    from: dayBefore(asOf, 90),
-    to: asOf,
-  });
-  if (readings.length === 0) return null;
-  const values = readings.map((r) => r.value);
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  const sd =
-    values.length < 2
-      ? 0
-      : Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / (values.length - 1));
-  const first = day(readings[0]!.at);
-  const last = day(readings[readings.length - 1]!.at);
-  return {
-    source,
-    type,
-    unit: readings[0]!.unit,
-    mean: Math.round(mean * 10) / 10,
-    sd: Math.round(sd * 10) / 10,
-    coverage: {
-      n: values.length,
-      from: first,
-      to: last,
-      days_present: new Set(readings.map((r) => day(r.at))).size,
-      days_expected: daysBetween(first, last),
-      source,
-      rule: `mean of ${type} over the 90 days to ${asOf}, from this source alone`,
-    },
-  };
 }
 
 /**
