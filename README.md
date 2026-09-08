@@ -225,13 +225,19 @@ Deliberately left out: medical records from your health provider, and findings t
 
 This is the part the file exists for. A record of training that never commits to a claim about tomorrow can't be shown to be right or wrong.
 
-**`ath predict fran`** prints everything a prediction would rest on: every previous Fran in full, the last 28 days day by day, your long-range averages with the count and spread behind each one, and how your past predictions on Fran turned out. It also names what's missing — days with no data, a benchmark with only one prior result, two devices that disagree.
+**`ath predict fran`** prints everything a prediction would rest on: your previous Frans, the last 28 days day by day, your long-range averages with the count and spread behind each one, and how your past predictions on Fran turned out. It also names what's missing — days with no data, a benchmark with only one prior result, two devices that disagree.
 
-It doesn't give you a number. Turning evidence into a prediction takes a model, and there isn't one in the terminal. An agent reads this, reasons, and writes its answer back. Add `--as-of 2026-06-01` to hide everything after a past day, which is how you test whether the reasoning actually works on you.
+It doesn't give you a number. Turning evidence into a prediction takes a model, and there isn't one in the terminal. An agent reads this, reasons, and writes its answer back. Add `--as-of 2026-06-01` to hide everything after a past day, which is how you test whether the reasoning actually works on you. That option hides data and nothing else: the averages are worked out exactly the same way, or the test would be measuring the tool.
 
-**`ath grade fran --actual 4:32`** records what happened and scores the open prediction against it. Inside the range it stated is a hit, and prints one line. Anything else is a miss, and prints the dossier: last night's sleep, that morning's readings, everything you reported in the 72 hours before, and any day in the last week that sat far from your own normal. Your agent reads that and writes up what it thinks went wrong — and every cause it names is checked against the file first, so it can't invent one.
+Every prediction records who made it — the agent, the model it ran, and the version of `ath` that wrote it. Six months from now, a prediction nobody signed can't be weighed against the ones that were right, so `ath log` refuses one that doesn't say.
 
-If no prediction was open, the result is simply recorded and that's that.
+**`ath grade fran --actual 4:32`** records what happened and scores the open prediction against it. Like `ath log`, it shows what it's about to write and asks once — including which of that day's recorded sessions the result belongs to, if your watch caught one. The verdict comes after.
+
+Inside the range it stated is a hit, and prints one line. Anything else is a miss, and prints the dossier: last night's sleep, that morning's readings, everything you reported in the 72 hours before, and any day in the last week that sat far from your own normal. Your agent reads that and writes up what it thinks went wrong — and every cause it names is checked against the file first, so it can't invent one.
+
+If no prediction was open, the result is simply recorded and that's that. If you'd already logged the result, it's graded rather than written twice.
+
+**One workout on one day makes one result.** Logging a second is refused, and the refusal shows you the one already there. A duplicate result is counted by every average and every trend afterwards, and nothing about the file looks wrong — which is exactly the kind of quiet mistake this format exists to prevent. If you really did do it twice, pass `--again`.
 
 ## Where this is up to
 

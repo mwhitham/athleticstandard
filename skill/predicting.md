@@ -7,15 +7,18 @@ the CLI has no model. You are the model.
 
 Four sections, and a list of gaps the tool found for you.
 
-1. **Every prior result on this benchmark**, in full, plus results on benchmarks of
-   the same kind. This is the strongest evidence there is: the same work, done
-   before, by this athlete.
+1. **Prior results on this benchmark**, plus results on benchmarks of the same kind.
+   This is the strongest evidence there is: the same work, done before, by this
+   athlete. The twenty most recent are shown; if there are more, the section says how
+   many and `ath stats` counts them all.
 2. **The last 28 days, day by day.** Actual rows, one per day per source, with sleep,
-   training sessions, and every self-reported entry in the window word for word.
+   training sessions, vendor scores, and every self-reported entry in the window word
+   for word. The section ends with what it rests on: readings counted, days present
+   out of days in the window.
 3. **Long-range averages**, each carrying its count, its date range, its spread, and
    the source it came from. One source each, never pooled.
-4. **Past predictions on this benchmark**, with their grades and the lesson from each
-   miss.
+4. **Past predictions on this benchmark**, with their grades, who made each one, and
+   the lesson from each miss.
 
 Sections 2 and 3 overlap on purpose. Check a few of the averages against the rows
 before you lean on them. A summary that does not match the rows underneath it is the
@@ -28,7 +31,8 @@ are they moving? Two results eleven months apart is not a trend.
 
 **Then section 4.** If you have been wrong on this benchmark before, the lesson from
 that miss is the most useful sentence in the whole package. Apply it before you reason
-from anything else.
+from anything else. Each entry names the agent and model that made it, so check
+whether the misses belong to one of them or to all of them.
 
 **Then section 2, for the last week.** You are looking for whether the recent days
 depart from the athlete's normal, and section 3 tells you what normal is. Read the
@@ -70,12 +74,22 @@ ath log '{
   "confidence": "moderate",
   "reasoning": "Four prior results, 5:07 down to 4:35 over 15 months...",
   "evidence_window": { "from": "2026-08-11", "to": "2026-09-07" },
-  "model": "<your model name>"
+  "model": "<your model name>",
+  "agent": "<the program you are running in, e.g. Claude Code>"
 }' -y
 ```
 
 `confidence` is `low`, `moderate`, or `high`. The score field must match how the
 benchmark is scored: `duration_s` for time, `reps` for reps, `weight_kg` for load.
+
+**`agent` is required and `ath log` refuses a prediction without it.** A prediction is
+a claim, and six months from now a claim nobody signed cannot be weighed against the
+ones that were right. Name the program you are running in, not the model — `model` is
+already a separate field, and the same model behaves differently under different
+scaffolding.
+
+Do not send `ath_version`. The tool writes its own version and overwrites anything you
+pass, because that is a fact it knows and you would be guessing at.
 
 ## Testing yourself on the past
 

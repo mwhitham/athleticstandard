@@ -9,9 +9,26 @@ ath grade fran --actual 4:32
 Write the score in the benchmark's own unit: a clock for time, a plain number for
 reps, a number with a unit for load. Add `--date` when the attempt was not today.
 
+Grading writes, so it shows a summary of what it will write and asks once, the same
+as `ath log`. Where a wearable recorded a session that day, the question includes the
+session match. The verdict comes after the write.
+
+Pass `-y` to skip the question, or `--dry-run` to see the summary and write nothing.
+`-y` attaches the session when there is exactly one that day; where there are two it
+attaches neither and says so, because picking one would be a guess.
+
 The command records the result, writes the actual into the open prediction, and
 computes the error. If no prediction was open, it logs the result and stops. There
 was no claim, so there is nothing to be right or wrong about.
+
+## One attempt makes one result
+
+If the result is already in the file — the athlete logged it, and you are grading it
+afterwards — the command grades what is there rather than writing a second copy.
+
+A *different* score on a day that already has a result is refused, because one of the
+two is wrong and writing both would leave the file claiming each. Correct the score,
+or pass `--again` if the athlete genuinely attempted the benchmark twice that day.
 
 ## Hit
 
@@ -38,8 +55,10 @@ Three parts, in the order they should be weighed:
    session itself. Most trusted, because it is measured and it is closest in time.
 2. **Everything self-reported in the 72 hours before**, word for word.
 3. **Days in the last week that sat far from the athlete's own baseline.** Each one
-   shows the day's figure, the baseline it is measured against, the spread, and how
-   many standard deviations out it is.
+   shows the day's figure, the baseline it is measured against, the spread, how many
+   standard deviations out it is, and what that baseline rests on. Check the count
+   before you lean on the deviation: two standard deviations from a mean of six days
+   is not the same claim as two from a mean of ninety.
 
 Nothing in the dossier is a cause. It is the material from which a cause might be
 argued.

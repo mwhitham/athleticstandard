@@ -363,6 +363,8 @@ Written by an agent **before** the attempt; graded after; append-only by convent
   "reasoning": "Last Fran 4:41 on 2026-06-02. HRV 61-66ms all week vs 63ms baseline. …",
   "evidence_window": { "from": "2026-06-01", "to": "2026-08-09" },
   "model": "claude-sonnet-4-5",
+  "agent": "Claude Code",
+  "ath_version": "0.3.0",
   "actual": null, "grade": null, "miss_analysis": null }
 ```
 
@@ -370,14 +372,24 @@ Written by an agent **before** the attempt; graded after; append-only by convent
 |---|---|---|
 | `id`, `benchmark`, `created_at` | yes | |
 | `predicted` | yes | score object matching the benchmark's `score_type` |
-| `range` | no | stated uncertainty: `low`/`high` score objects. Grading tests whether the actual landed inside |
+| `range` | no | stated uncertainty: `low`/`high` score objects. Grading tests whether the actual landed inside. A prediction that stated no range is never a hit |
 | `confidence` | yes | `low` \| `moderate` \| `high` |
 | `reasoning` | yes | must cite specific dates and values, not vague trends |
 | `evidence_window` | yes | the date range of data the prediction considered |
 | `model` | yes | which model produced it |
+| `agent` | no | the program the model ran inside, e.g. `Claude Code`. Optional in the format so older files load; `ath log` refuses a prediction that omits it |
+| `ath_version` | no | the version of `ath` that wrote the prediction. Written by the tool, which knows it. A file upgraded later does not change it |
 | `actual` | after attempt | `{ result, recorded_at }` — must not precede `created_at` (validated) |
 | `grade` | after grading | `{ signed_error, abs_error_pct, in_range }` — computed deterministically, never by the LLM |
 | `miss_analysis` | on misses | see below |
+
+### The prediction points at its result
+
+`actual.recorded_at` together with the prediction's `benchmark` identifies a `benchmark_result` in `hard_signals`. Validators check that the result exists and that the two scores agree.
+
+That is the second of two links joining the three records that describe one attempt. The first is `benchmark_result.session`, which names the workout session the effort was recorded in. So the chain runs prediction → result → session, and can be walked from either end.
+
+No id was added for either link. A result is identified by its benchmark and its instant, and a session by its source and its start.
 
 ### `miss_analysis`
 
@@ -410,7 +422,7 @@ Validators should accept any file whose major version they support and warn on n
 Two layers, both required for a file to be conformant:
 
 1. **Schema** (`schema/athleticstandard.schema.json`): shapes, types, enums, canonical units, strict objects (unknown keys rejected).
-2. **Semantic rules** (reference implementation: `src/validate.ts`): source and benchmark references resolve; a `benchmark_result.session` resolves to a workout session with that source and start; ids unique; session `end` after `start`; series coverage does not end before it begins; score keys match `score_type`; ratings carry scales; vendor scores carry scales; photo provenance names its interpreter; a `derived` value cites a series whose coverage includes the day it was computed for; series units match their quantity; actuals don't precede predictions; grades require actuals; miss analyses require grades; empty cause lists must be marked unexplained.
+2. **Semantic rules** (reference implementation: `src/validate.ts`): source and benchmark references resolve; a `benchmark_result.session` resolves to a workout session with that source and start; ids unique; session `end` after `start`; series coverage does not end before it begins; score keys match `score_type`; ratings carry scales; vendor scores carry scales; photo provenance names its interpreter; a `derived` value cites a series whose coverage includes the day it was computed for; series units match their quantity; actuals don't precede predictions; a graded prediction's `actual` resolves to a `benchmark_result` with a matching score; grades require actuals; miss analyses require grades; empty cause lists must be marked unexplained.
 3. **Sidecar checks** for any `series_ref`: hash what is on disk for the quantity and compare. A mismatch is one error naming the quantity. An absent `series/` folder is a single warning, not an error.
 
 ## Appendix A — Prior art and mapping

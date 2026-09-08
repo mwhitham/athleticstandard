@@ -159,6 +159,10 @@ ratings like 4/5, clock times, and rep totals. Everything else becomes a
 note with your words kept exactly. It never turns a sentence into a
 measurement on a guess — the worst it can do is file something as a note.
 
+One workout on one day makes one result. Logging a second is refused,
+because a duplicate is counted by every average afterwards and nothing
+looks wrong. If you really did it twice, pass --again.
+
 An agent connected to this file does more: it recognises that a paste is
 Fran, names the benchmark, and passes structured JSON instead of text.`,
 
@@ -194,7 +198,8 @@ Examples:
 
 This prints evidence and never a number. Turning evidence into a
 prediction takes a model and this tool has none. An agent reads this,
-reasons, and writes its answer back with \`ath log\`.
+reasons, and writes its answer back with \`ath log\`, naming itself and
+the model it ran — a prediction nobody signed cannot be weighed later.
 
 It reads only. Nothing in the file changes.`,
 
@@ -210,6 +215,17 @@ Examples:
 
   An attempt from an earlier day:
     $ ath grade fran --actual 4:32 --date 2026-09-04
+
+  See what it would write, and write nothing:
+    $ ath grade fran --actual 4:32 --dry-run
+
+Grading writes, so it shows what it will write and asks once, the same as
+\`ath log\`. Where your watch recorded a session that day, it offers to
+attach the result to it. The verdict comes after.
+
+If the result is already in the file, it is graded rather than written
+again. A different score on a day that already has one is refused: pass
+--again if you really attempted it twice.
 
 A result inside the prediction's stated range is a hit, and prints one
 line. Anything else is a miss and prints the dossier: the day's own
@@ -238,7 +254,10 @@ two devices measuring one thing give two answers. Each carries how many
 observations it rests on, over what days, and the rule used.
 
 Each source also lists the devices seen writing under it, with the days
-each one covered — which is where a replaced watch becomes visible.`,
+each one covered — which is where a replaced watch becomes visible.
+
+Predictions are counted by who made them, so you can see which agent and
+model has actually been right about you.`,
 
   series: `
 Examples:

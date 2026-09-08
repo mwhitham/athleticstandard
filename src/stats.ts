@@ -188,8 +188,36 @@ export function statsAsJson(
     predictions: {
       total: file.predictions.length,
       graded: file.predictions.filter((p) => p.grade !== null).length,
+      by_author: predictionsByAuthor(file),
     },
   };
+}
+
+export interface AuthorRow {
+  author: string;
+  recorded: number;
+  graded: number;
+  hits: number;
+}
+
+/**
+ * Predictions grouped by who made them (D66).
+ *
+ * The agent and the model together, because the same model behaves differently under
+ * different scaffolding. Predictions written before those fields existed are grouped
+ * under "unrecorded" rather than dropped.
+ */
+export function predictionsByAuthor(file: AthleticStandardFileT): AuthorRow[] {
+  const rows = new Map<string, AuthorRow>();
+  for (const p of file.predictions) {
+    const author = p.agent ? `${p.agent} running ${p.model}` : `${p.model} (agent unrecorded)`;
+    const row = rows.get(author) ?? { author, recorded: 0, graded: 0, hits: 0 };
+    row.recorded += 1;
+    if (p.grade) row.graded += 1;
+    if (p.grade?.in_range) row.hits += 1;
+    rows.set(author, row);
+  }
+  return [...rows.values()].sort((a, b) => b.recorded - a.recorded || a.author.localeCompare(b.author));
 }
 
 export function renderStats(file: AthleticStandardFileT, athleteFilePath: string): string {
@@ -338,6 +366,13 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
   lines.push(
     `predictions: ${file.predictions.length} recorded · ${graded.length} graded`,
   );
+  // Split by who made them, because "which model has been right on this athlete" is
+  // the question a track record is kept to answer (D66).
+  for (const row of predictionsByAuthor(file)) {
+    lines.push(
+      `  ${row.author}: ${row.recorded} recorded, ${row.graded} graded, ${row.hits} hit`,
+    );
+  }
 
   return lines.join("\n");
 }

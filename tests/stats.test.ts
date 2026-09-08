@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ATHLETIC_STANDARD_VERSION, type AthleticStandardFileT } from "../src/schema.js";
-import { baselineFor } from "../src/stats.js";
+import { baselineFor, predictionsByAuthor } from "../src/stats.js";
 
 /** No sidecars in these cases, so the path only has to be somewhere. */
 const NO_SIDECARS = "/nonexistent/athlete.ath.json";
@@ -89,6 +89,39 @@ describe("baselineFor", () => {
   it("returns null for a source that never measured this type", () => {
     const file = fileWithHrv([{ recorded_at: "2026-08-01T06:00:00Z", value: 60 }]);
     expect(baselineFor(file, NO_SIDECARS, "hrv_rmssd", "oura-1")).toBeNull();
+  });
+});
+
+describe("counting predictions by who made them (D66)", () => {
+  it("groups by agent and model, and counts hits", () => {
+    const file = fileWithHrv([{ recorded_at: "2026-08-01T06:00:00Z", value: 60 }]);
+    file.benchmarks.push({
+      id: "fran",
+      kind: "named_wod",
+      score_type: "time",
+      definition: "21-15-9",
+    });
+    const base = {
+      benchmark: "fran",
+      created_at: "2026-07-01T09:00:00Z",
+      predicted: { duration_s: 280 },
+      confidence: "moderate" as const,
+      reasoning: "steady",
+      evidence_window: { from: "2026-06-01", to: "2026-07-01" },
+      actual: null,
+      miss_analysis: null,
+    };
+    file.predictions.push(
+      { ...base, id: "a", model: "m1", agent: "Claude Code", grade: { signed_error: 1, abs_error_pct: 0.4, in_range: true } },
+      { ...base, id: "b", model: "m1", agent: "Claude Code", grade: { signed_error: 40, abs_error_pct: 14, in_range: false } },
+      { ...base, id: "c", model: "m1", agent: "Claude Code", grade: null },
+      { ...base, id: "d", model: "m2", grade: null },
+    );
+
+    expect(predictionsByAuthor(file)).toEqual([
+      { author: "Claude Code running m1", recorded: 3, graded: 2, hits: 1 },
+      { author: "m2 (agent unrecorded)", recorded: 1, graded: 0, hits: 0 },
+    ]);
   });
 });
 

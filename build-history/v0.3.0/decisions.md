@@ -249,3 +249,128 @@ Rejected alternatives:
 
 - **Reuse `baselineFor`, which spreads over individual readings.** Rejected because the two numbers would be measuring different things while looking the same, which is the drift D22 warns about with SDNN and RMSSD.
 - **Flag individual samples.** Rejected because one anomalous beat interval in a night of thousands is noise, and a dossier listing hundreds of them is a dossier nobody reads.
+
+## D64. Three records describe one attempt, and two links join them
+
+A prediction is a claim made before a workout. A benchmark result is what happened. A workout session is the wearable's record of the same effort. Those are three records about one event.
+
+Only one link existed. A result names its session by source and start (D48), and `ath check` verifies it. A prediction held a copy of the score and a timestamp, and pointed at nothing. Correct the result afterwards and the prediction still claimed the old number, with nothing in the file to say the two disagreed.
+
+The reference was already there in fact. A benchmark result is identified by its benchmark and its instant, and a graded prediction already stored both. So `prediction.actual.recorded_at` is stated to be that reference, and `ath check` verifies that the result exists and that the two scores agree. No field was added.
+
+The chain can now be walked from either end: prediction to result to session.
+
+Nothing else is linked. A morning HRV reading does not point at a workout, because it carries a timestamp and that is enough to line things up. A link is worth having only where two records describe the same event and one can be corrected without the other. Every link is one more thing that can go stale and has to be checked on every save.
+
+Rejected alternatives:
+
+- **Give every benchmark result an id and have the prediction reference it.** Rejected for the reason D48 gives for the session link: an id has to be invented, kept unique, and preserved across a re-import, and the file already identifies a result without one.
+- **Store the result inside the prediction and drop the separate record.** Rejected because a result is a measured signal and belongs in `hard_signals` with the rest, where every baseline and trend can see it.
+- **Warn rather than error when the two disagree.** Rejected because a prediction graded against a score the file does not hold is not a mild problem: it is the ledger claiming something that cannot be checked, which is the one thing the ledger is for.
+- **Link the prediction to the session as well.** Rejected as a third edge that says nothing the other two do not. One hop each way is enough.
+
+## D65. `ath grade` shows what it will write and asks, the same as `ath log`
+
+`ath log` prints a summary of every guess it made and asks one question before anything reaches the file (D56). `ath grade` wrote immediately. Both write, so both should write the same way.
+
+Grading now runs in two halves. `planGrade` works out the result, the grade, and the dossier and writes none of it; `applyGrade` commits. In between, the reader sees the summary and answers once. The result goes in through `applyDraft`, which is `ath log`'s write path, so it picks up the session offer, the sort order and the manual source from the one place that does those (D55).
+
+The verdict is printed after the write, not before the question. Showing the grade above the question would be asking permission for something already said.
+
+`ath grade` also offers the session match, which it previously only hinted at. The match is the same match whichever command records the result, so it is made the same way: by asking (D53).
+
+Rejected alternatives:
+
+- **Leave grade writing immediately, since an agent drives it.** Rejected because a person runs it too, and because the argument would apply equally to `ath log`, which does ask.
+- **Keep the hint and skip the offer.** Rejected because a hint is a second command the reader has to remember to run, and the tool already knows both halves.
+- **Print the verdict, then ask.** Rejected because there is nothing left to consent to once the answer is on the screen.
+
+## D66. A prediction records who made it, and the tool writes its own version
+
+A prediction is a claim, and a claim with no author cannot be weighed against the next one. Asking six months later which model to trust means knowing which model said what.
+
+Three things are recorded. `model` was already there. `agent` is the program the model ran inside, which is a different fact: the same model behaves differently under different scaffolding. `ath_version` is the version of the tool that wrote the prediction, which matters per prediction rather than per file, because a file upgraded later does not change what a past prediction was made with.
+
+The split is by who knows the answer. The agent supplies the model and the agent name, because only it knows them. The tool writes the version and overwrites anything it was handed, because that is a fact the tool knows and the caller would be guessing at.
+
+`ath log` refuses a prediction that does not name its agent. The field is optional in the schema so a 0.2.0 file still loads, and required at the write path so nothing new arrives unsigned. That is D46: a rule a tool can enforce should not live in a skill.
+
+`ath predict` prints the author of every past prediction alongside its grade, so a run of misses from one model is visible rather than averaged in with everyone else's.
+
+Rejected alternatives:
+
+- **Group the three under one `author` object.** Rejected because `model` already exists at the top level, and moving it is a breaking change to a required field in a minor version.
+- **Make the fields required in the schema.** Rejected because a minor version may only add optional fields, and a 0.2.0 file holding a prediction would stop loading.
+- **Trust the version the agent passes.** Rejected because the tool knows its own version and the agent is reading it off something. Where the tool knows, the tool writes.
+- **Infer the agent from the environment.** Rejected as a guess dressed as a fact. Every agent runs `ath` the same way, and there is nothing reliable to read.
+
+## D67. One attempt makes one result, and a second one says so
+
+Running `ath grade fran --actual 4:32` twice made two Fran results and said nothing. So did logging the same workout twice. Almost every repeat is the same command run twice.
+
+The cost is not untidiness. A duplicate result is counted by every baseline, every trend and every prediction that reads the benchmark's history, and nothing about the file looks wrong afterwards. It is the quiet kind of wrong this format exists to avoid.
+
+So a second result for a benchmark on a day that already has one is refused, and the refusal names the result already there. A real second attempt passes `--again`.
+
+Grading has one exception, because logging a result and then grading it is the ordinary order. A result already logged with the same score is the one being graded, not a duplicate to refuse: the grade attaches to it and nothing is written twice. A different score on the same day is refused, because one of the two is wrong and writing both leaves the file claiming each.
+
+Rejected alternatives:
+
+- **Warn and write anyway.** Rejected because a warning scrolls past and the duplicate stays. The whole problem is that nothing looks wrong afterwards.
+- **Silently replace the earlier result.** Rejected because it throws away a record without asking, and the earlier one may be the correct one.
+- **Match on the score as well, so only identical repeats are refused.** Rejected because two different scores on one day is the more alarming case, not the more permissible one.
+
+## D68. `--yes` agrees with what would have been shown; it does not choose
+
+`--yes` skips the question. It was also attaching the result to the nearest workout session that day even when three sessions could have been it.
+
+Those are different things. `--yes` means "I agree with what you would have shown me". Picking one of three real efforts is not something that was going to be shown; it is a choice the reader would have made. D53 says a match is made by asking and never by inference, and the nearest start time is inference.
+
+So there are three amounts of consent, and the session match respects the difference. With a terminal, the question is put and the reader can change the answer. With `--yes`, one candidate is attached and two or more are left alone, with the reason on the screen. With neither, nothing is attached and `ath link` or the next import picks it up.
+
+Rejected alternatives:
+
+- **Attach the nearest one under `--yes`, as before.** Rejected because a wrong session link is invisible afterwards and quietly attributes a workout's heart rate to the wrong effort.
+- **Refuse `--yes` outright when several sessions match.** Rejected because the result itself is fine to write, and refusing the whole entry over an optional link is out of proportion.
+- **Attach nothing under `--yes` even when there is one candidate.** Rejected because one candidate on the same day is the ordinary case, and refusing to link it makes `--yes` useless for the scripts it exists for.
+
+## D69. `--as-of` hides readings; it never changes how a number is computed
+
+A backtest hides what happened after a date so a prediction can be tested against what was knowable at the time.
+
+There were two baseline functions. One anchored its ninety-day window on the latest reading and measured back from that reading's own instant. The other anchored on the as-of date and applied no instant cutoff. The same data gave two different means depending on whether a date was passed.
+
+That makes a backtest measure the tool rather than the reasoning. So there is one function, and it takes the day to stop at. The window is still anchored on the latest reading it can see, still measured back from that reading's instant, still bounded before any sidecar is opened. The rule string is the same either way, which is what lets a bounded number and an unbounded one be compared at all.
+
+Rejected alternatives:
+
+- **Keep the second function and document that the two differ.** Rejected because a documented inconsistency is still an inconsistency, and the reader comparing two runs would have to know to look.
+- **Anchor both on the as-of date.** Rejected because without a date there is no such day, and the latest reading is the only anchor that always exists.
+
+## D70. Vendor scores appear in the evidence, labelled
+
+WHOOP recovery and Oura readiness are numbers a vendor computed, not numbers a sensor read (D27). They are imported, they are counted in `ath stats`, they appear in the miss dossier, and the skill tells an agent they may corroborate a claim.
+
+They did not appear in `ath predict`. So an agent could weigh a recovery score when explaining a miss and not when trying to avoid one, and the skill described something the evidence did not contain.
+
+They now appear in the day-by-day rows in a column of their own, headed so the reader cannot mistake them for measurements, with the rule stated in the section text: they may corroborate a claim and cannot be the basis of one.
+
+Rejected alternatives:
+
+- **Leave them out, since a prediction should rest on measurements.** Rejected because the skill and the dossier already say otherwise, and three places giving two answers is worse than either answer.
+- **Put them in the baselines section.** Rejected because a mean of a proprietary composite is a number about a formula nobody outside the vendor has seen.
+- **Mix them into the measurement columns.** Rejected because the whole point of D27 is that they are a different kind of thing, and a shared column would say they are not.
+
+## D71. `ath predict` shows the most recent results and counts what it left out
+
+Every result ever recorded on a benchmark was printed. An athlete with years of Fran attempts would get all of them, and an evidence package too long to read is one that gets skimmed.
+
+The twenty most recent are shown, and the ten most recent for related benchmarks. What was left out is stated in the same place: how many are shown, how many exist, and that `ath stats` counts them all.
+
+Saying so is the part that matters. A reader who cannot see how much was dropped cannot tell a short history from a truncated one, and would read four results as the whole story when there were forty.
+
+Rejected alternatives:
+
+- **Print everything.** Rejected because the package is read by a model with a context limit, and the older results are the least informative ones.
+- **Trim silently.** Rejected for the reason D47 exists: a number with no statement of what it rests on cannot be argued with.
+- **Cut by date rather than by count.** Rejected because a benchmark attempted twice a year and one attempted weekly need different windows, and a count adapts where a window does not.
