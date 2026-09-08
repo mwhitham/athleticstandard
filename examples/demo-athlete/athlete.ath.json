@@ -18665,5 +18665,123 @@
       ]
     }
   ],
-  "predictions": []
+  "predictions": [
+    {
+      "id": "pred-2026-06-02-fran",
+      "benchmark": "fran",
+      "created_at": "2026-05-30T17:54:25Z",
+      "predicted": {
+        "duration_s": 278
+      },
+      "range": {
+        "low": {
+          "duration_s": 268
+        },
+        "high": {
+          "duration_s": 283
+        }
+      },
+      "confidence": "moderate",
+      "reasoning": "Three prior Frans, 5:10 down to 4:48 over eleven months, roughly 11 seconds off each time. HRV sat at its own 90-day mean every night of the last two weeks and the night before was 7h10m of actual sleep, so nothing argues for a departure from the trend.",
+      "evidence_window": {
+        "from": "2026-05-03",
+        "to": "2026-05-30"
+      },
+      "model": "claude-sonnet-4-5",
+      "agent": "Claude Code",
+      "ath_version": "0.3.0",
+      "actual": {
+        "result": {
+          "duration_s": 275
+        },
+        "recorded_at": "2026-06-02T17:54:25Z"
+      },
+      "grade": {
+        "signed_error": 3,
+        "abs_error_pct": 1.1,
+        "in_range": true
+      },
+      "miss_analysis": null
+    },
+    {
+      "id": "pred-2026-07-07-helen",
+      "benchmark": "helen",
+      "created_at": "2026-07-04T18:15:47Z",
+      "predicted": {
+        "duration_s": 509
+      },
+      "range": {
+        "low": {
+          "duration_s": 501
+        },
+        "high": {
+          "duration_s": 517
+        }
+      },
+      "confidence": "high",
+      "reasoning": "Two prior Helens, 9:45 then 9:21, and the run split is the part that has been improving. Called high confidence on the strength of two points, which is one more than none and fewer than enough.",
+      "evidence_window": {
+        "from": "2026-06-07",
+        "to": "2026-07-04"
+      },
+      "model": "claude-sonnet-4-5",
+      "agent": "Claude Code",
+      "ath_version": "0.3.0",
+      "actual": {
+        "result": {
+          "duration_s": 553
+        },
+        "recorded_at": "2026-07-07T18:15:47Z"
+      },
+      "grade": {
+        "signed_error": -44,
+        "abs_error_pct": 8,
+        "in_range": false
+      },
+      "miss_analysis": {
+        "direction": "slower",
+        "severity": "significant",
+        "candidate_causes": [
+          {
+            "signal": {
+              "tier": "soft",
+              "type": "sleep_quality",
+              "date": "2026-07-05"
+            },
+            "explanation": "sleep_quality reported 1/5 on 2026-07-05: \"neighbor's dog\". Self-reported, so it is what the athlete noticed and not a measurement."
+          }
+        ],
+        "unexplained": false,
+        "lesson": "High confidence off two prior results was the error, not the number. Two points give a direction and no spread."
+      }
+    },
+    {
+      "id": "pred-2026-08-01-grace",
+      "benchmark": "grace",
+      "created_at": "2026-08-01T09:00:21Z",
+      "predicted": {
+        "duration_s": 177
+      },
+      "range": {
+        "low": {
+          "duration_s": 169
+        },
+        "high": {
+          "duration_s": 187
+        }
+      },
+      "confidence": "low",
+      "reasoning": "Two prior Graces, and the second was 11 seconds faster than the first. The last one was three months ago and there has been no barbell work logged since, so the range is wide and the confidence is low.",
+      "evidence_window": {
+        "from": "2026-07-05",
+        "to": "2026-08-01"
+      },
+      "model": "claude-sonnet-4-5",
+      "agent": "Claude Code",
+      "ath_version": "0.3.0",
+      "actual": null,
+      "grade": null,
+      "miss_analysis": null
+    }
+  ]
 }

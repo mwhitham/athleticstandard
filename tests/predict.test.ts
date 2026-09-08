@@ -151,7 +151,9 @@ describe("ath predict — the evidence package", () => {
     expect(out.baselines[0].coverage).toMatchObject({ source: "whoop-1" });
     expect(out.baselines[0].coverage.n).toBeGreaterThan(0);
     expect(out.gaps.length).toBeGreaterThan(0);
-    expect(out.track_record).toEqual([]);
+    expect(out.track_record[0]).toMatchObject({
+      by: "Claude Code running claude-sonnet-4-5, on ath 0.3.0",
+    });
   });
 
   it("shows vendor scores in the day rows, labelled as not measured (D70)", () => {

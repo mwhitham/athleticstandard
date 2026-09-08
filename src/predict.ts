@@ -160,6 +160,9 @@ export function renderEvidence(ev: Evidence): string {
             `(${t.grade.signed_error > 0 ? "+" : ""}${t.grade.signed_error})`,
         );
       }
+      // Who made it, so a run of misses from one model is visible rather than
+      // averaged in with everyone else's (D66).
+      out.push(`  - by ${t.by}`);
       if (t.lesson) out.push(`  - lesson: ${t.lesson}`);
     }
   }
@@ -167,8 +170,9 @@ export function renderEvidence(ev: Evidence): string {
   out.push("");
   out.push(
     `Save a prediction with \`ath log\`, passing JSON with an id, this benchmark, ` +
-      `predicted, confidence, reasoning, evidence_window and model. Grade it later ` +
-      `with \`ath grade ${ev.benchmark.id} --actual <score>\`.`,
+      `predicted, confidence, reasoning, evidence_window, model, and agent — the ` +
+      `program you are running in. Grade it later with ` +
+      `\`ath grade ${ev.benchmark.id} --actual <score>\`.`,
   );
 
   return out.join("\n");

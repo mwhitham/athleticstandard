@@ -350,6 +350,9 @@ describe("ath grade — the miss dossier", () => {
     expect(res.stdout).not.toContain("too far back to count");
     expect(res.stdout).toMatch(/2026-08-09 whoop-1 hrv_rmssd: 38ms against a baseline of/);
     expect(res.stdout).toContain("standard deviations");
+    // The baseline the anomaly is measured against says what it rests on (D47).
+    expect(res.stdout).toMatch(/n=91, 2026-05-1\d → 2026-08-10, whoop-1 —/);
+    expect(res.stdout).toContain("spread of daily hrv_rmssd means over the 90 days to 2026-08-10");
   });
 
   it("says so plainly when nothing in the week was unusual", () => {

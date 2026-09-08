@@ -92,6 +92,8 @@ export interface TrackRow {
   actual: ScoreT | null;
   grade: PredictionT["grade"];
   lesson: string | null;
+  /** Who made it: the agent, the model, and the version of ath that wrote it (D66). */
+  by: string;
 }
 
 /**
@@ -286,6 +288,9 @@ export function evidenceFor(
       actual: p.actual?.result ?? null,
       grade: p.grade,
       lesson: p.miss_analysis?.lesson ?? null,
+      by:
+        [p.agent, p.model].filter(Boolean).join(" running ") +
+        (p.ath_version ? `, on ath ${p.ath_version}` : ""),
     }));
 
   // What the day-by-day section rests on, said as data rather than left to be

@@ -22,6 +22,7 @@ import {
   type SoftSignalT,
 } from "./schema.js";
 import { readingsFor } from "./readings.js";
+import { daysBetween, renderCoverage, type Coverage } from "./coverage.js";
 import {
   amountIn,
   CLOCK_ONLY,
@@ -70,6 +71,8 @@ export interface Anomaly {
   sd: number;
   /** How many standard deviations out, signed. */
   sds: number;
+  /** What the baseline it is measured against rests on (D47). */
+  coverage: Coverage;
 }
 
 export interface Dossier {
@@ -426,6 +429,17 @@ function weekAnomalies(file: AthleticStandardFileT, athleteFilePath: string, day
       );
       if (sd === 0) continue;
 
+      const sortedDays = means.map((m) => m.day).sort();
+      const coverage: Coverage = {
+        n: means.length,
+        from: sortedDays[0]!,
+        to: sortedDays[sortedDays.length - 1]!,
+        days_present: means.length,
+        days_expected: daysBetween(baselineFrom, day),
+        source,
+        rule: `spread of daily ${type} means over the 90 days to ${day}, from this source alone`,
+      };
+
       for (const m of means) {
         if (m.day < weekFrom) continue;
         const sds = (m.mean - mean) / sd;
@@ -439,6 +453,7 @@ function weekAnomalies(file: AthleticStandardFileT, athleteFilePath: string, day
           mean: Math.round(mean * 10) / 10,
           sd: Math.round(sd * 10) / 10,
           sds: Math.round(sds * 10) / 10,
+          coverage,
         });
       }
     }
@@ -529,6 +544,7 @@ export function renderGrade(outcome: GradeOutcome): string {
       `- ${a.day} ${a.source} ${a.type}: ${a.value}${a.unit} against a baseline of ` +
         `${a.mean}${a.unit} (sd ${a.sd}) — ${a.sds > 0 ? "+" : ""}${a.sds} standard deviations`,
     );
+    lines.push(`  - ${renderCoverage(a.coverage)}`);
   }
 
   lines.push("");
