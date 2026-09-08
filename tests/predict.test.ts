@@ -143,12 +143,83 @@ describe("ath predict — the evidence package", () => {
     const out = JSON.parse(res.stdout);
     expect(out.benchmark.id).toBe("fran");
     expect(out.as_of).toBe("2026-08-10");
-    expect(out.history.length).toBeGreaterThan(1);
+    expect(out.history.rows.length).toBeGreaterThan(1);
+    expect(out.history.total).toBe(out.history.shown);
     expect(out.days.length).toBeGreaterThan(1);
+    expect(out.coverage).toMatchObject({ to: "2026-08-10" });
+    expect(out.coverage.days_expected).toBe(28);
     expect(out.baselines[0].coverage).toMatchObject({ source: "whoop-1" });
     expect(out.baselines[0].coverage.n).toBeGreaterThan(0);
     expect(out.gaps.length).toBeGreaterThan(0);
     expect(out.track_record).toEqual([]);
+  });
+
+  it("shows vendor scores in the day rows, labelled as not measured (D70)", () => {
+    const dir = copyFixture();
+    const file = read(dir);
+    file.hard_signals.push(
+      {
+        type: "vendor_score",
+        metric: "recovery",
+        value: 34,
+        scale: "0-100",
+        recorded_at: "2026-08-09T06:30:00Z",
+        source: "whoop-1",
+      },
+      {
+        type: "vendor_score",
+        metric: "recovery",
+        value: 81,
+        scale: "0-100",
+        recorded_at: "2026-08-10T06:30:00Z",
+        source: "whoop-1",
+      },
+    );
+    write(dir, file);
+
+    const res = ath(["predict", "fran", "--as-of", "2026-08-10"], dir);
+    expect(res.stdout).toContain("vendor score (not measured)");
+    expect(res.stdout).toContain("recovery 34 (0-100)");
+    expect(res.stdout).toContain("may corroborate a claim and cannot be the basis of one");
+
+    const json = JSON.parse(ath(["predict", "fran", "--as-of", "2026-08-10", "--json"], dir).stdout);
+    const day = json.days.find((d: { day: string }) => d.day === "2026-08-09");
+    expect(day.vendor).toEqual([
+      { source: "whoop-1", metric: "recovery", value: 34, scale: "0-100" },
+    ]);
+  });
+
+  it("says what the day-by-day window rests on (D47)", () => {
+    const res = ath(["predict", "fran", "--file", FIXTURE, "--as-of", "2026-08-10"], process.cwd());
+    expect(res.stdout).toMatch(/n=\d+, 2026-07-14 → 2026-08-10, \d+\/28 days/);
+  });
+
+  it("shows the most recent results and says how many it left out (D71)", () => {
+    const dir = copyFixture();
+    const file = read(dir);
+    // Twenty-five weekly attempts, so the cap of twenty bites.
+    for (let i = 0; i < 25; i++) {
+      const day = new Date(Date.parse("2026-01-07T00:00:00Z") + i * 7 * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      file.hard_signals.push({
+        type: "benchmark_result",
+        benchmark: "grace",
+        recorded_at: `${day}T17:30:00Z`,
+        source: "manual-1",
+        result: { duration_s: 180 + i },
+      });
+    }
+    write(dir, file);
+
+    const res = ath(["predict", "grace", "--as-of", "2026-08-10"], dir);
+    expect(res.stdout).toContain("## 1. Recent results on this benchmark");
+    expect(res.stdout).toMatch(/Showing the 20 most recent of \d+ results on this benchmark/);
+    expect(res.stdout).toContain("`ath stats` counts them all");
+
+    const json = JSON.parse(ath(["predict", "grace", "--as-of", "2026-08-10", "--json"], dir).stdout);
+    expect(json.history.shown).toBe(20);
+    expect(json.history.total).toBeGreaterThan(20);
   });
 
   it("shows a past prediction, its grade and its lesson", () => {
@@ -164,7 +235,9 @@ describe("ath predict — the evidence package", () => {
       reasoning: "hrv steady at 63ms through May",
       evidence_window: { from: "2026-03-01", to: "2026-06-01" },
       model: "test",
-      actual: { result: { duration_s: 275 }, recorded_at: "2026-06-02T17:20:00Z" },
+      agent: "test-harness",
+      // The fixture's own Fran result, which is what a graded prediction points at (D64).
+      actual: { result: { duration_s: 275 }, recorded_at: "2026-06-02T17:54:25Z" },
       grade: { signed_error: 15, abs_error_pct: 5.5, in_range: false },
       miss_analysis: {
         direction: "faster",

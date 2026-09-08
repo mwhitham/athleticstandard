@@ -13,7 +13,13 @@
 import type { AthleticStandardFileT, BenchmarkT, SoftSignalT } from "./schema.js";
 import { renderCoverage, RULES } from "./coverage.js";
 import { describeScore, hoursAndMinutes } from "./score.js";
-import { RECENT_DAYS, type DayRow, type Evidence, type ResultRow } from "./context.js";
+import {
+  RECENT_DAYS,
+  type DayRow,
+  type Evidence,
+  type ResultHistory,
+  type ResultRow,
+} from "./context.js";
 
 /** Raised when there is nothing to predict against, with the remedy in the message. */
 export class PredictRefusal extends Error {
@@ -94,15 +100,17 @@ export function renderEvidence(ev: Evidence): string {
   }
 
   out.push("");
-  out.push(`## 1. Every result on this benchmark`);
+  out.push(`## 1. ${ev.history.shown < ev.history.total ? "Recent results" : "Every result"} on this benchmark`);
   out.push("");
-  out.push(...resultLines(ev.history, "No result on this benchmark yet."));
+  out.push(...resultLines(ev.history.rows, "No result on this benchmark yet."));
+  out.push(...leftOut(ev.history, "on this benchmark"));
 
-  if (ev.related.length > 0) {
+  if (ev.related.total > 0) {
     out.push("");
     out.push(`Other ${ev.benchmark.kind} benchmarks, for shape rather than for comparison:`);
     out.push("");
-    out.push(...resultLines(ev.related, "", true));
+    out.push(...resultLines(ev.related.rows, "", true));
+    out.push(...leftOut(ev.related, `on other ${ev.benchmark.kind} benchmarks`));
   }
 
   out.push("");
@@ -111,10 +119,14 @@ export function renderEvidence(ev: Evidence): string {
   out.push(
     `Rows, not averages. Sleep is actual sleep and time in bed, kept apart because ` +
       `they are different numbers. A reading marked \`n=\` is that day's mean over that ` +
-      `many samples, with the range beside it.`,
+      `many samples, with the range beside it. A vendor score is a number the vendor ` +
+      `computed rather than one a sensor read, so it may corroborate a claim and cannot ` +
+      `be the basis of one.`,
   );
   out.push("");
   out.push(...dayTable(ev.days));
+  out.push("");
+  out.push(renderCoverage(ev.coverage));
 
   out.push("");
   out.push(`### Self-reported, word for word`);
@@ -162,6 +174,21 @@ export function renderEvidence(ev: Evidence): string {
   return out.join("\n");
 }
 
+/**
+ * What was not printed, said rather than trimmed away.
+ *
+ * A reader who cannot see how much was left out cannot tell a short history from a
+ * truncated one (D71).
+ */
+function leftOut(history: ResultHistory, what: string): string[] {
+  if (history.shown >= history.total) return [];
+  return [
+    "",
+    `Showing the ${history.shown} most recent of ${history.total} results ${what}. ` +
+      `The rest are in the file, and \`ath stats\` counts them all.`,
+  ];
+}
+
 function resultLines(rows: ResultRow[], empty: string, withName = false): string[] {
   if (rows.length === 0) return empty ? [empty] : [];
   return rows.map((r) => {
@@ -187,6 +214,7 @@ interface Cell {
   values: Map<string, string>;
   sleep: string;
   session: string;
+  vendor: string;
 }
 
 /**
@@ -203,7 +231,7 @@ function dayTable(days: DayRow[]): string[] {
   const cellFor = (day: string, source: string): Cell => {
     const found = rows.find((r) => r.day === day && r.source === source);
     if (found) return found;
-    const fresh: Cell = { day, source, values: new Map(), sleep: "", session: "" };
+    const fresh: Cell = { day, source, values: new Map(), sleep: "", session: "", vendor: "" };
     rows.push(fresh);
     return fresh;
   };
@@ -232,6 +260,11 @@ function dayTable(days: DayRow[]): string[] {
       const cell = cellFor(d.day, s.source);
       cell.session = cell.session ? `${cell.session}; ${parts.join(" ")}` : parts.join(" ");
     }
+    for (const v of d.vendor) {
+      const cell = cellFor(d.day, v.source);
+      const text = `${v.metric} ${v.value} (${v.scale})`;
+      cell.vendor = cell.vendor ? `${cell.vendor}; ${text}` : text;
+    }
   }
 
   rows.sort((a, b) => a.day.localeCompare(b.day) || a.source.localeCompare(b.source));
@@ -243,6 +276,9 @@ function dayTable(days: DayRow[]): string[] {
   ];
   if (rows.some((r) => r.sleep)) columns.push({ head: "sleep of time in bed", get: (c) => c.sleep });
   if (rows.some((r) => r.session)) columns.push({ head: "training", get: (c) => c.session });
+  if (rows.some((r) => r.vendor)) {
+    columns.push({ head: "vendor score (not measured)", get: (c) => c.vendor });
+  }
 
   const widths = columns.map((col) => Math.max(col.head.length, ...rows.map((r) => col.get(r).length)));
   const line = (cells: string[]) => `| ${cells.map((c, i) => c.padEnd(widths[i]!)).join(" | ")} |`;
@@ -273,6 +309,7 @@ export function evidenceAsJson(ev: Evidence): Record<string, unknown> {
     history: ev.history,
     related: ev.related,
     days: ev.days,
+    coverage: ev.coverage,
     soft_signals: ev.soft,
     baselines: ev.baselines,
     track_record: ev.track,

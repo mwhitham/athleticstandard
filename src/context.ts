@@ -48,6 +48,21 @@ export interface DayReading {
   max?: number;
 }
 
+/**
+ * A number a vendor computed, not one a sensor read (D27).
+ *
+ * Carried in the evidence because the skill already tells an agent these may
+ * corroborate a claim, and the miss dossier already shows them. Leaving them out of
+ * the one place a prediction is made meant an agent could weigh a WHOOP recovery
+ * score when explaining a miss and not when avoiding one (D70).
+ */
+export interface DayVendorScore {
+  source: string;
+  metric: string;
+  value: number;
+  scale: string;
+}
+
 export interface DayRow {
   day: string;
   readings: DayReading[];
@@ -58,6 +73,7 @@ export interface DayRow {
     efficiency_pct?: number | undefined;
   }[];
   sessions: { source: string; start: string; end: string; activity?: string; avgHr?: number }[];
+  vendor: DayVendorScore[];
 }
 
 export interface BaselineRow {
@@ -78,20 +94,40 @@ export interface TrackRow {
   lesson: string | null;
 }
 
+/**
+ * The most recent results this benchmark has, and how many were left behind.
+ *
+ * An athlete with years of Fran attempts would otherwise get every one of them
+ * printed, and an evidence package too long to read is one that gets skimmed. What
+ * is dropped is said out loud rather than silently trimmed (D71).
+ */
+export interface ResultHistory {
+  rows: ResultRow[];
+  /** How many results exist in total, including the ones not shown. */
+  total: number;
+  shown: number;
+}
+
 export interface Evidence {
   benchmark: BenchmarkT;
   /** Everything after this day is hidden, which is what makes a backtest honest. */
   asOf: string;
   from: string;
-  history: ResultRow[];
-  related: ResultRow[];
+  history: ResultHistory;
+  related: ResultHistory;
   days: DayRow[];
+  /** What the day-by-day rows rest on: days present against days in the window. */
+  coverage: Coverage;
   soft: SoftSignalT[];
   baselines: BaselineRow[];
   track: TrackRow[];
   /** What is missing or disagreeing, named rather than left to be noticed. */
   gaps: string[];
 }
+
+/** The most recent results this benchmark has. */
+export const MOST_RECENT_RESULTS = 20;
+export const MOST_RECENT_RELATED = 10;
 
 const day = (ts: string) => ts.slice(0, 10);
 
@@ -145,18 +181,20 @@ export function evidenceFor(
       s.type === "benchmark_result" && upTo(s.recorded_at),
   );
 
-  const history = allResults
-    .filter((r) => r.benchmark === benchmark.id)
-    .sort((a, b) => a.recorded_at.localeCompare(b.recorded_at))
-    .map((r) => toRow(file, r));
+  const history = mostRecent(
+    allResults.filter((r) => r.benchmark === benchmark.id),
+    MOST_RECENT_RESULTS,
+    file,
+  );
 
   const sameKind = new Set(
     file.benchmarks.filter((b) => b.kind === benchmark.kind && b.id !== benchmark.id).map((b) => b.id),
   );
-  const related = allResults
-    .filter((r) => sameKind.has(r.benchmark))
-    .sort((a, b) => a.recorded_at.localeCompare(b.recorded_at))
-    .map((r) => toRow(file, r));
+  const related = mostRecent(
+    allResults.filter((r) => sameKind.has(r.benchmark)),
+    MOST_RECENT_RELATED,
+    file,
+  );
 
   // --- Section 2: the recent window, row by row ---
   const sources = file.sources.map((s) => s.id);
@@ -164,7 +202,7 @@ export function evidenceFor(
   const rowFor = (d: string): DayRow => {
     const existing = byDay.get(d);
     if (existing) return existing;
-    const fresh: DayRow = { day: d, readings: [], sleep: [], sessions: [] };
+    const fresh: DayRow = { day: d, readings: [], sleep: [], sessions: [], vendor: [] };
     byDay.set(d, fresh);
     return fresh;
   };
@@ -211,6 +249,14 @@ export function evidenceFor(
         ...(sig.aggregates.avg_hr_bpm ? { avgHr: sig.aggregates.avg_hr_bpm } : {}),
       });
     }
+    if (sig.type === "vendor_score" && day(sig.recorded_at) >= from && day(sig.recorded_at) <= asOf) {
+      rowFor(day(sig.recorded_at)).vendor.push({
+        source: sig.source,
+        metric: sig.metric,
+        value: sig.value,
+        scale: sig.scale,
+      });
+    }
   }
 
   const days = [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day));
@@ -242,6 +288,21 @@ export function evidenceFor(
       lesson: p.miss_analysis?.lesson ?? null,
     }));
 
+  // What the day-by-day section rests on, said as data rather than left to be
+  // counted off the table (D47).
+  const withAnything = days.filter(
+    (d) => d.readings.length > 0 || d.sleep.length > 0 || d.vendor.length > 0,
+  );
+  const coverage: Coverage = {
+    n: days.reduce((total, d) => total + d.readings.length + d.sleep.length + d.vendor.length, 0),
+    from,
+    to: asOf,
+    days_present: withAnything.length,
+    days_expected: daysBetween(from, asOf),
+    source: "every source in the file, kept apart by row",
+    rule: `every reading, night and vendor score in the ${RECENT_DAYS} days to ${asOf}`,
+  };
+
   return {
     benchmark,
     asOf,
@@ -249,11 +310,23 @@ export function evidenceFor(
     history,
     related,
     days,
+    coverage,
     soft,
     baselines,
     track,
     gaps: namedGaps({ from, asOf, days, history, baselines }),
   };
+}
+
+/** The last `limit` results in time order, and how many were left behind (D71). */
+function mostRecent(
+  results: Extract<HardSignalT, { type: "benchmark_result" }>[],
+  limit: number,
+  file: AthleticStandardFileT,
+): ResultHistory {
+  const sorted = [...results].sort((a, b) => a.recorded_at.localeCompare(b.recorded_at));
+  const rows = sorted.slice(-limit).map((r) => toRow(file, r));
+  return { rows, total: sorted.length, shown: rows.length };
 }
 
 function unitOf(file: AthleticStandardFileT, type: string, source: string): string {
@@ -280,7 +353,7 @@ function namedGaps(input: {
   from: string;
   asOf: string;
   days: DayRow[];
-  history: ResultRow[];
+  history: ResultHistory;
   baselines: BaselineRow[];
 }): string[] {
   const gaps: string[] = [];
@@ -294,11 +367,11 @@ function namedGaps(input: {
     );
   }
 
-  if (input.history.length === 0) {
+  if (input.history.total === 0) {
     gaps.push(`No prior result on this benchmark. There is nothing here to extrapolate from.`);
-  } else if (input.history.length === 1) {
+  } else if (input.history.total === 1) {
     gaps.push(
-      `Only one prior result on this benchmark (${day(input.history[0]!.recordedAt)}). ` +
+      `Only one prior result on this benchmark (${day(input.history.rows[0]!.recordedAt)}). ` +
         `A single point has no trend and no spread.`,
     );
   }
