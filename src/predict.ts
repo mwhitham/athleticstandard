@@ -12,7 +12,7 @@
  */
 import type { AthleticStandardFileT, BenchmarkT, SoftSignalT } from "./schema.js";
 import { renderCoverage, RULES } from "./coverage.js";
-import { describeScore } from "./log.js";
+import { describeScore, hoursAndMinutes } from "./score.js";
 import { RECENT_DAYS, type DayRow, type Evidence, type ResultRow } from "./context.js";
 
 /** Raised when there is nothing to predict against, with the remedy in the message. */
@@ -252,13 +252,6 @@ function dayTable(days: DayRow[]): string[] {
     line(widths.map((w) => "-".repeat(w))),
     ...rows.map((r) => line(columns.map((c) => c.get(r)))),
   ];
-}
-
-function hoursAndMinutes(seconds: number): string {
-  // Round to the minute first. Rounding the remainder on its own turns 6h59m30s
-  // into "6h60m", which is not a time anybody writes.
-  const minutes = Math.round(seconds / 60);
-  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
 }
 
 function softLines(soft: SoftSignalT[]): string[] {

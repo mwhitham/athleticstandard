@@ -5,6 +5,7 @@
 import type { AthleticStandardFileT } from "./schema.js";
 import { latestReadingDay, readingsFor } from "./readings.js";
 import { coverageOf, daysBetween, renderCoverage, RULES, type Coverage } from "./coverage.js";
+import { dayBefore, TRACKED } from "./signals.js";
 
 export interface Baseline {
   mean: number;
@@ -26,11 +27,6 @@ const day = (ts: string) => ts.slice(0, 10);
 
 /** Instant in milliseconds. Offset timestamps cannot be ordered as strings. */
 const instant = (ts: string): number => Date.parse(ts);
-
-/** Calendar day `days` before `d`. */
-function dayBefore(d: string, days: number): string {
-  return new Date(Date.parse(`${d}T00:00:00Z`) - days * 86400_000).toISOString().slice(0, 10);
-}
 
 /**
  * Mean/sd of a measurement over the trailing `windowDays` of data.
@@ -143,7 +139,7 @@ export function statsAsJson(
       devices: src.devices ?? [],
     })),
     baselines: file.sources.flatMap((src) =>
-      BASELINE_TYPES.map(([type, unit]) => ({ src, type, unit, b: baselineFor(file, athleteFilePath, type, src.id) }))
+      TRACKED.map(({ type, unit }) => ({ src, type, unit, b: baselineFor(file, athleteFilePath, type, src.id) }))
         .filter((x) => x.b !== null)
         .map(({ src, type, unit, b }) => ({
           source: src.id,
@@ -177,14 +173,6 @@ export function statsAsJson(
     },
   };
 }
-
-/** The measurements a baseline is worth showing for: the ones a prediction reads. */
-const BASELINE_TYPES: [string, string][] = [
-  ["hrv_rmssd", "ms"],
-  ["hrv_sdnn", "ms"],
-  ["resting_heart_rate", "bpm"],
-  ["respiratory_rate", "brpm"],
-];
 
 export function renderStats(file: AthleticStandardFileT, athleteFilePath: string): string {
   const lines: string[] = [];
@@ -259,8 +247,8 @@ export function renderStats(file: AthleticStandardFileT, athleteFilePath: string
   // Baselines are listed per source, never pooled (D31). A reader comparing two
   // devices should see two numbers and decide, not one number hiding a disagreement.
   const baselineRows = file.sources.flatMap((src) =>
-    BASELINE_TYPES
-      .map(([type, unit]) => ({
+    TRACKED
+      .map(({ type, unit }) => ({
         source: src.id,
         type,
         unit,

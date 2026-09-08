@@ -21,12 +21,10 @@ import type {
 import { readingsFor } from "./readings.js";
 import { baselineFor } from "./stats.js";
 import { daysBetween, type Coverage } from "./coverage.js";
+import { dayBefore, TRACKED_TYPES } from "./signals.js";
 
 /** How far back the row-by-row window reaches. */
 export const RECENT_DAYS = 28;
-
-/** The measurements a prediction reads, in the order they are worth reading. */
-const TRACKED = ["hrv_rmssd", "hrv_sdnn", "resting_heart_rate", "respiratory_rate"] as const;
 
 export interface ResultRow {
   benchmark: string;
@@ -96,10 +94,6 @@ export interface Evidence {
 }
 
 const day = (ts: string) => ts.slice(0, 10);
-
-function dayBefore(d: string, days: number): string {
-  return new Date(Date.parse(`${d}T00:00:00Z`) - days * 86_400_000).toISOString().slice(0, 10);
-}
 
 /** The workout session a result names, if the file still holds it. */
 function sessionOf(
@@ -176,7 +170,7 @@ export function evidenceFor(
   };
 
   for (const source of sources) {
-    for (const type of TRACKED) {
+    for (const type of TRACKED_TYPES) {
       const readings = readingsFor(file, athleteFilePath, type, source, { from, to: asOf });
       if (readings.length === 0) continue;
       const grouped = new Map<string, typeof readings>();
@@ -227,7 +221,7 @@ export function evidenceFor(
   // --- Section 3: long-range averages, per source and never pooled (D31) ---
   const baselines: BaselineRow[] = [];
   for (const source of sources) {
-    for (const type of TRACKED) {
+    for (const type of TRACKED_TYPES) {
       const b = baselineFor(file, athleteFilePath, type, source);
       if (!b || b.coverage.to > asOf) {
         // The baseline reads the latest data it can find, which after `--as-of` may be

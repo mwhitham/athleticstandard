@@ -21,7 +21,18 @@ import {
   type SoftSignalT,
 } from "./schema.js";
 import { readingsFor } from "./readings.js";
-import { formatDuration } from "./logparse.js";
+import {
+  amountIn,
+  CLOCK_ONLY,
+  formatDuration,
+  hoursAndMinutes,
+  kilosFromLoad,
+  LOAD_ONLY,
+  nativeValue,
+  SCORE_KEY,
+  secondsFromClock,
+} from "./score.js";
+import { manualSource, shiftDay, signalAt, TRACKED_TYPES } from "./signals.js";
 import { localTimestamp, noonOn, today } from "./log.js";
 
 /** Raised when the file cannot be graded, with the remedy in the message. */
@@ -32,13 +43,8 @@ export class GradeRefusal extends Error {
   }
 }
 
-/** The measurements the dossier looks at. Same list `ath predict` reads. */
-const TRACKED = ["hrv_rmssd", "hrv_sdnn", "resting_heart_rate", "respiratory_rate"] as const;
-
 /** How far a day's mean must sit from the baseline before it is worth naming. */
 const ANOMALY_SDS = 1.5;
-
-const SCORE_KEY = { time: "duration_s", reps: "reps", load: "weight_kg" } as const;
 
 export type Severity = "hit" | "minor" | "significant" | "severe";
 
@@ -93,11 +99,9 @@ export function parseActual(text: string, scoreType: BenchmarkT["score_type"]): 
   const flat = text.trim();
 
   if (scoreType === "time") {
-    const clock = /^(\d{1,3}):([0-5]\d)(?::([0-5]\d))?$/.exec(flat);
+    const clock = CLOCK_ONLY.exec(flat);
     if (clock) {
-      const [, a, b, c] = clock;
-      const duration_s =
-        c === undefined ? Number(a) * 60 + Number(b) : Number(a) * 3600 + Number(b) * 60 + Number(c);
+      const duration_s = secondsFromClock(clock);
       if (duration_s > 0) return { score: { duration_s }, text: formatDuration(duration_s) };
     }
     const seconds = /^(\d{1,5})\s*s(?:ec|ecs|econds)?$/i.exec(flat);
@@ -119,10 +123,9 @@ export function parseActual(text: string, scoreType: BenchmarkT["score_type"]): 
     throw new GradeRefusal(`'${flat}' is not a rep count. Write it as \`245\` or \`245 reps\`.`);
   }
 
-  const load = /^(\d{1,4}(?:\.\d+)?)\s*(kg|lb|lbs|pounds)$/i.exec(flat);
+  const load = LOAD_ONLY.exec(flat);
   if (load) {
-    const raw = Number(load[1]);
-    const weight_kg = /^kg$/i.test(load[2]!) ? raw : Math.round(raw * 0.45359237 * 100) / 100;
+    const weight_kg = kilosFromLoad(load);
     if (weight_kg > 0) return { score: { weight_kg }, text: `${weight_kg} kg` };
   }
   throw new GradeRefusal(
@@ -133,7 +136,7 @@ export function parseActual(text: string, scoreType: BenchmarkT["score_type"]): 
 
 /** The score in the benchmark's native unit: seconds, reps, or kilos. */
 function native(score: ScoreT, scoreType: BenchmarkT["score_type"]): number {
-  const value = score[SCORE_KEY[scoreType]];
+  const value = nativeValue(score, scoreType);
   if (value === undefined) {
     throw new GradeRefusal(`that score has no ${SCORE_KEY[scoreType]}, which this benchmark is scored by.`);
   }
@@ -145,13 +148,6 @@ function describe(score: ScoreT, scoreType: BenchmarkT["score_type"]): string {
   if (scoreType === "time") return formatDuration(value);
   if (scoreType === "reps") return `${value} reps`;
   return `${value} kg`;
-}
-
-function errorIn(amount: number, scoreType: BenchmarkT["score_type"]): string {
-  const rounded = Math.round(amount * 100) / 100;
-  if (scoreType === "time") return `${rounded}s`;
-  if (scoreType === "reps") return `${rounded} reps`;
-  return `${rounded} kg`;
 }
 
 /**
@@ -246,23 +242,10 @@ export function gradeAttempt(
     actualText: text,
     prediction: open,
     severity,
-    errorText: errorIn(Math.abs(signed), benchmark.score_type),
+    errorText: amountIn(Math.abs(signed), benchmark.score_type),
     dossier: severity === "hit" ? null : buildDossier(file, athleteFilePath, recordedAt),
     unlinkedSessions,
   };
-}
-
-function manualSource(file: AthleticStandardFileT): string {
-  const existing = file.sources.find((s) => s.kind === "manual");
-  if (existing) return existing.id;
-  file.sources.push({ id: "manual-1", kind: "manual", detail: "Hand-entered data" });
-  return "manual-1";
-}
-
-function signalAt(sig: HardSignalT): string {
-  if ("recorded_at" in sig) return sig.recorded_at;
-  if (sig.type === "series_ref") return `${sig.from}T00:00:00Z`;
-  return sig.start;
 }
 
 /**
@@ -310,7 +293,7 @@ function weekAnomalies(file: AthleticStandardFileT, athleteFilePath: string, day
   const baselineFrom = shiftDay(day, -90);
 
   for (const source of file.sources.map((s) => s.id)) {
-    for (const type of TRACKED) {
+    for (const type of TRACKED_TYPES) {
       const readings = readingsFor(file, athleteFilePath, type, source, { from: baselineFrom, to: day });
       if (readings.length === 0) continue;
 
@@ -350,10 +333,6 @@ function weekAnomalies(file: AthleticStandardFileT, athleteFilePath: string, day
   }
 
   return found.sort((a, b) => Math.abs(b.sds) - Math.abs(a.sds));
-}
-
-function shiftDay(day: string, by: number): string {
-  return new Date(Date.parse(`${day}T00:00:00Z`) + by * 86_400_000).toISOString().slice(0, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -458,7 +437,7 @@ function sessionHint(outcome: GradeOutcome): string[] {
 function describeSignal(sig: HardSignalT): string {
   if (sig.type === "sleep_session") {
     const a = sig.aggregates;
-    const hm = (s?: number) => (s === undefined ? "?" : `${Math.floor(s / 3600)}h${String(Math.round((s % 3600) / 60)).padStart(2, "0")}m`);
+    const hm = (s?: number) => (s === undefined ? "?" : hoursAndMinutes(s));
     return (
       `${sig.source} sleep: ${hm(a.duration_s)} actual sleep of ${hm(a.time_in_bed_s)} in bed` +
       (a.efficiency_pct === undefined ? "" : `, ${a.efficiency_pct}% efficiency`) +

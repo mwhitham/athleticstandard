@@ -16,6 +16,18 @@
  * shapes do not overlap, so there is nothing to guess (D57).
  */
 import { POINT_MEASUREMENT_UNITS, type ScoreT, type SoftSignalTypeT } from "./schema.js";
+import {
+  CLOCK_AT_END,
+  CLOCK_INTRODUCED,
+  formatDuration,
+  kilosFromLoad,
+  lbToKg,
+  LOAD_AT_END,
+  secondsFromClock,
+  type ScoreType,
+} from "./score.js";
+
+export { formatDuration } from "./score.js";
 
 // ---------------------------------------------------------------------------
 // What a line of text can become
@@ -71,7 +83,6 @@ type PointType = keyof typeof POINT_MEASUREMENT_UNITS;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const same = (n: number) => n;
-const lbToKg = (n: number) => round2(n * 0.45359237);
 const fToC = (n: number) => round2(((n - 32) * 5) / 9);
 const inToCm = (n: number) => round2(n * 2.54);
 
@@ -194,7 +205,7 @@ const WORKOUT_WORDS = [
 interface ReadScore {
   score: ScoreT;
   scoreText: string;
-  scoreType: "time" | "reps" | "load";
+  scoreType: ScoreType;
 }
 
 /**
@@ -218,38 +229,23 @@ export function readScore(text: string): ReadScore | null {
   }
 
   // A clock at the end, or one introduced by "in" or "time".
-  const clock =
-    /(?:^|\s)(\d{1,3}):([0-5]\d)(?::([0-5]\d))?\s*$/.exec(flat) ??
-    /\b(?:in|time|finished)\s+(\d{1,3}):([0-5]\d)(?::([0-5]\d))?\b/i.exec(flat);
+  const clock = CLOCK_AT_END.exec(flat) ?? CLOCK_INTRODUCED.exec(flat);
   if (clock) {
-    const [, a, b, c] = clock;
-    const duration_s = c === undefined
-      ? Number(a) * 60 + Number(b)
-      : Number(a) * 3600 + Number(b) * 60 + Number(c);
+    const duration_s = secondsFromClock(clock);
     if (duration_s > 0) {
       return { score: { duration_s }, scoreText: formatDuration(duration_s), scoreType: "time" };
     }
   }
 
-  const load = /(\d{1,4}(?:\.\d+)?)\s*(kg|lbs?|pounds)\s*$/i.exec(flat);
+  const load = LOAD_AT_END.exec(flat);
   if (load) {
-    const raw = Number(load[1]);
-    const weight_kg = /^kg$/i.test(load[2]!) ? raw : lbToKg(raw);
+    const weight_kg = kilosFromLoad(load);
     if (weight_kg > 0) {
       return { score: { weight_kg }, scoreText: `${weight_kg} kg`, scoreType: "load" };
     }
   }
 
   return null;
-}
-
-/** "4:41", "1:02:30" — the way a result is written down. */
-export function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
 // ---------------------------------------------------------------------------

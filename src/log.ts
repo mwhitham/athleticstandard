@@ -24,7 +24,11 @@ import {
   type ScoreT,
   type SoftSignalT,
 } from "./schema.js";
-import { formatDuration, parseEntry, ParseRefusal, type Entry } from "./logparse.js";
+import { parseEntry, ParseRefusal, type Entry } from "./logparse.js";
+import { describeScore } from "./score.js";
+import { manualSource, signalAt, sortHardSignals } from "./signals.js";
+
+export { describeScore } from "./score.js";
 
 /** Raised when input cannot be written, with the remedy in the message. */
 export class LogRefusal extends Error {
@@ -141,14 +145,6 @@ export interface LogDraft {
 }
 
 const SOFT_TYPES = new Set(SoftSignalType.options as readonly string[]);
-
-/** The source hand-typed records belong to, created if the file has none. */
-function manualSource(file: AthleticStandardFileT): string {
-  const existing = file.sources.find((s) => s.kind === "manual");
-  if (existing) return existing.id;
-  file.sources.push({ id: "manual-1", kind: "manual", detail: "Hand-entered data" });
-  return "manual-1";
-}
 
 /** A benchmark id from a name a person or an agent supplied. */
 export function benchmarkId(name: string): string {
@@ -503,13 +499,6 @@ function explain(what: string, issues: { path: PropertyKey[]; message: string }[
   );
 }
 
-export function describeScore(score: ScoreT): string {
-  if (score.duration_s !== undefined) return formatDuration(score.duration_s);
-  if (score.reps !== undefined) return `${score.reps} reps`;
-  if (score.weight_kg !== undefined) return `${score.weight_kg} kg`;
-  return "(no score)";
-}
-
 function describeWhen(sig: HardSignalT): string {
   return ("recorded_at" in sig ? sig.recorded_at : sig.type === "series_ref" ? sig.from : sig.start).slice(0, 10);
 }
@@ -565,14 +554,8 @@ export function applyDraft(file: AthleticStandardFileT, draft: LogDraft): void {
   file.soft_signals.push(...draft.soft);
   file.predictions.push(...draft.predictions);
 
-  file.hard_signals.sort((a, b) => Date.parse(signalAt(a)) - Date.parse(signalAt(b)));
+  sortHardSignals(file);
   file.soft_signals.sort((a, b) => Date.parse(a.reported_at) - Date.parse(b.reported_at));
-}
-
-function signalAt(sig: HardSignalT): string {
-  if ("recorded_at" in sig) return sig.recorded_at;
-  if (sig.type === "series_ref") return `${sig.from}T00:00:00Z`;
-  return sig.start;
 }
 
 /** One line per record written, echoed back so the reader sees what landed. */
