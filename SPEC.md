@@ -1,4 +1,4 @@
-# The Athletic Standard Format — Specification v0.3.0
+# The Athletic Standard Format — Specification v0.4.0
 
 **Status:** draft · **File extension:** `.ath.json` · **Schema:** [`schema/athleticstandard.schema.json`](schema/athleticstandard.schema.json) (JSON Schema draft 2020-12, generated from the Zod definitions in [`src/schema.ts`](src/schema.ts), which are normative)
 
@@ -17,7 +17,7 @@ Athletic Standard is an open, local-first file format for a functional-fitness a
 
 ```json
 {
-  "athleticstandard_version": "0.3.0",
+  "athleticstandard_version": "0.4.0",
   "athlete": { },
   "sources": [ ],
   "hard_signals": [ ],
@@ -214,7 +214,7 @@ Nothing is averaged or downsampled anywhere: the sidecars hold every sample the 
 A sidecar is one quantity, one day, one source:
 
 ```json
-{ "athleticstandard_version": "0.3.0", "quantity": "heart_rate", "unit": "bpm",
+{ "athleticstandard_version": "0.4.0", "quantity": "heart_rate", "unit": "bpm",
   "start": "2026-08-09T00:00:12-07:00", "source": "apple-watch-1",
   "offsets_ms": [0, 300000], "values": [62, 64] }
 ```
@@ -224,7 +224,7 @@ A sidecar is one quantity, one day, one source:
 A sample that covers a span rather than an instant — "420 steps from 9:00 to 9:05" — keeps its length in a third parallel array, `durations_ms`. It is present only when at least one sample on that day has a span, so a day of heart-rate readings does not carry a column of zeros. Steps, energy, distance, exercise time and Apple's HRV windows have spans; heart rate, oxygen saturation and respiratory rate do not.
 
 ```json
-{ "athleticstandard_version": "0.3.0", "quantity": "steps", "unit": "count",
+{ "athleticstandard_version": "0.4.0", "quantity": "steps", "unit": "count",
   "start": "2026-08-09T09:00:00-07:00", "source": "iphone-1",
   "offsets_ms": [0, 300000], "values": [420, 388], "durations_ms": [300000, 300000] }
 ```
@@ -364,7 +364,7 @@ Written by an agent **before** the attempt; graded after; append-only by convent
   "evidence_window": { "from": "2026-06-01", "to": "2026-08-09" },
   "model": "claude-sonnet-4-5",
   "agent": "Claude Code",
-  "ath_version": "0.3.0",
+  "ath_version": "0.4.0",
   "actual": null, "grade": null, "miss_analysis": null }
 ```
 

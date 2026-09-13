@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { AthleticStandardFileT } from "../src/schema.js";
+import { ATHLETIC_STANDARD_VERSION, type AthleticStandardFileT } from "../src/schema.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(here, "../src/cli.ts");
@@ -152,7 +152,7 @@ describe("ath predict — the evidence package", () => {
     expect(out.baselines[0].coverage.n).toBeGreaterThan(0);
     expect(out.gaps.length).toBeGreaterThan(0);
     expect(out.track_record[0]).toMatchObject({
-      by: "Claude Code running claude-sonnet-4-5, on ath 0.3.0",
+      by: `Claude Code running claude-sonnet-4-5, on ath ${ATHLETIC_STANDARD_VERSION}`,
     });
   });
 

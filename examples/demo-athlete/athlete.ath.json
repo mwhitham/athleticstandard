@@ -1,5 +1,5 @@
 {
-  "athleticstandard_version": "0.3.0",
+  "athleticstandard_version": "0.4.0",
   "athlete": {
     "name": "Demo Athlete",
     "birth_year": 1991,
@@ -18689,7 +18689,7 @@
       },
       "model": "claude-sonnet-4-5",
       "agent": "Claude Code",
-      "ath_version": "0.3.0",
+      "ath_version": "0.4.0",
       "actual": {
         "result": {
           "duration_s": 275
@@ -18726,7 +18726,7 @@
       },
       "model": "claude-sonnet-4-5",
       "agent": "Claude Code",
-      "ath_version": "0.3.0",
+      "ath_version": "0.4.0",
       "actual": {
         "result": {
           "duration_s": 553
@@ -18778,7 +18778,7 @@
       },
       "model": "claude-sonnet-4-5",
       "agent": "Claude Code",
-      "ath_version": "0.3.0",
+      "ath_version": "0.4.0",
       "actual": null,
       "grade": null,
       "miss_analysis": null

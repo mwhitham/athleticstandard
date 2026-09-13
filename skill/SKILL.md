@@ -9,7 +9,7 @@ An Athletic Standard file is one JSON document holding one athlete's training an
 recovery data. It sits on the athlete's own machine. `ath` is the command that reads
 and writes it.
 
-This skill expects format version **0.3.0**. `ath check` prints the version of the
+This skill expects format version **0.4.0**. `ath check` prints the version of the
 file in front of you. A file on an older version still loads; a newer one may hold
 fields described nowhere here, so say so rather than guessing at them.
 

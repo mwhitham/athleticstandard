@@ -657,7 +657,7 @@ export const Athlete = z.strictObject({
     .describe("Display preference only — stored values are always canonical (metric) units"),
 });
 
-export const ATHLETIC_STANDARD_VERSION = "0.3.0";
+export const ATHLETIC_STANDARD_VERSION = "0.4.0";
 
 export const AthleticStandardFile = z
   .strictObject({

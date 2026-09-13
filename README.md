@@ -241,7 +241,7 @@ If no prediction was open, the result is simply recorded and that's that. If you
 
 ## Where this is up to
 
-Early days. Version 0.3.
+Early days. Version 0.4.
 
 Working today: creating a file, loading exports from Apple Health, WHOOP, and Oura, checking and summarizing it, reading the detailed measurements back, logging what you did, and the full prediction loop — predict, log, grade, explain the miss.
 
