@@ -1,18 +1,22 @@
 /**
- * `ath predict` — the evidence a prediction rests on, printed and nothing more.
+ * `ath predict` — a prediction when a model is present, evidence when asked.
  *
- * The command reads. It never writes, and it never produces a number: turning
- * evidence into a prediction takes a model, and the CLI has none (D7). The agent
- * reads this, reasons, and saves its answer with `ath log`, which is the one command
- * that writes (D55).
+ * Bare terminal: call the model you chose, print the number, ask, write (D76).
+ * `--json` is evidence for a harness. Evidence alone is never a prediction.
  *
- * Four sections, from [v0.1.0 §5](../build-history/v0.1.0/spec.md), plus the gaps
- * named out loud. Summaries are printed beside the rows they came from, so a reader
- * can check one against the other instead of taking the summary on trust.
+ * A harness still writes through `ath log` (D55). When the CLI itself produced
+ * the number, this command writes it.
  */
-import type { AthleticStandardFileT, BenchmarkT, SoftSignalT } from "./schema.js";
+import {
+  ATHLETIC_STANDARD_VERSION,
+  type AthleticStandardFileT,
+  type BenchmarkT,
+  type PredictionT,
+  type ScoreT,
+  type SoftSignalT,
+} from "./schema.js";
 import { renderCoverage, RULES } from "./coverage.js";
-import { describeScore, hoursAndMinutes } from "./score.js";
+import { describeScore, formatDuration, hoursAndMinutes, nativeValue, scoreFromNative } from "./score.js";
 import {
   RECENT_DAYS,
   type DayRow,
@@ -20,14 +24,14 @@ import {
   type ResultHistory,
   type ResultRow,
 } from "./context.js";
+import { evidenceFor } from "./context.js";
+import { complete } from "./gateway.js";
+import { resolveModel } from "./models.js";
+import { PredictRefusal } from "./predict-errors.js";
+import { localTimestamp, type LogDraft } from "./log.js";
+import type { GatewayName } from "./keyring.js";
 
-/** Raised when there is nothing to predict against, with the remedy in the message. */
-export class PredictRefusal extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PredictRefusal";
-  }
-}
+export { PredictRefusal } from "./predict-errors.js";
 
 /**
  * The benchmark being asked about, or a refusal naming the closest ones.
@@ -73,16 +77,17 @@ function closeness(a: string, b: string): number {
   return shared + contains;
 }
 
+const EVIDENCE_NOTE =
+  "Evidence for a prediction, not a prediction. A harness reasons over this and writes with `ath log`.";
+
 /** The four sections, as markdown a person and an agent both read. */
 export function renderEvidence(ev: Evidence): string {
   const out: string[] = [];
 
-  out.push(`# ${ev.benchmark.id} — the evidence for a prediction`);
+  out.push(`# ${ev.benchmark.id} — evidence, not a prediction`);
   out.push("");
   out.push(
-    `This is what the file holds. It is not a prediction: turning evidence into a ` +
-      `number needs an agent, because this tool has no model. An agent writes its ` +
-      `answer back with \`ath log\`.`,
+    `This is what the file holds. It is not a prediction. A prediction needs a model.`,
   );
   out.push("");
   out.push(`  benchmark   ${ev.benchmark.id} — ${ev.benchmark.kind}, scored by ${ev.benchmark.score_type}`);
@@ -160,30 +165,14 @@ export function renderEvidence(ev: Evidence): string {
             `(${t.grade.signed_error > 0 ? "+" : ""}${t.grade.signed_error})`,
         );
       }
-      // Who made it, so a run of misses from one model is visible rather than
-      // averaged in with everyone else's (D66).
       out.push(`  - by ${t.by}`);
       if (t.lesson) out.push(`  - lesson: ${t.lesson}`);
     }
   }
 
-  out.push("");
-  out.push(
-    `Save a prediction with \`ath log\`, passing JSON with an id, this benchmark, ` +
-      `predicted, confidence, reasoning, evidence_window, model, and agent — the ` +
-      `program you are running in. Grade it later with ` +
-      `\`ath grade ${ev.benchmark.id} --actual <score>\`.`,
-  );
-
   return out.join("\n");
 }
 
-/**
- * What was not printed, said rather than trimmed away.
- *
- * A reader who cannot see how much was left out cannot tell a short history from a
- * truncated one (D71).
- */
 function leftOut(history: ResultHistory, what: string): string[] {
   if (history.shown >= history.total) return [];
   return [
@@ -221,13 +210,6 @@ interface Cell {
   vendor: string;
 }
 
-/**
- * The recent window as a table, one row per day per source.
- *
- * Two devices measuring one day are two rows, never one averaged row, because
- * readings are not pooled across sources (D31). Columns appear only where there is
- * something in them, so a file with one wearable does not print four empty ones.
- */
 function dayTable(days: DayRow[]): string[] {
   if (days.length === 0) return ["No measurements at all in this window."];
 
@@ -303,9 +285,10 @@ function softLines(soft: SoftSignalT[]): string[] {
   });
 }
 
-/** The same evidence as data, for an agent that would rather not read prose (D47). */
+/** The same evidence as data, for a harness that would rather not read prose (D47, D76). */
 export function evidenceAsJson(ev: Evidence): Record<string, unknown> {
   return {
+    kind: "evidence",
     benchmark: ev.benchmark,
     as_of: ev.asOf,
     window: { from: ev.from, to: ev.asOf },
@@ -317,8 +300,273 @@ export function evidenceAsJson(ev: Evidence): Record<string, unknown> {
     soft_signals: ev.soft,
     baselines: ev.baselines,
     track_record: ev.track,
-    note:
-      "Evidence only. This tool has no model and does not predict; write the " +
-      "prediction back with `ath log`.",
+    note: EVIDENCE_NOTE,
   };
+}
+
+export interface PredictOptions {
+  asOf: string;
+  /** True when `--as-of` was passed, which never writes (D76). */
+  asOfPassed?: boolean;
+  model?: string;
+  gateway?: GatewayName;
+  dryRun?: boolean;
+  now?: Date;
+}
+
+export interface PlannedPrediction {
+  evidence: Evidence;
+  prediction: PredictionT;
+  draft: LogDraft;
+  gateway: GatewayName;
+  model: string;
+  /** False for `--as-of` and `--dry-run`. */
+  canWrite: boolean;
+  holdReason?: string;
+}
+
+/**
+ * Call the chosen model and build a draft. The caller asks, then writes.
+ */
+export async function planPredict(
+  file: AthleticStandardFileT,
+  athletePath: string,
+  benchmark: BenchmarkT,
+  options: PredictOptions,
+): Promise<PlannedPrediction> {
+  const { gateway, model } = await resolveModel(athletePath, options.model, options.gateway);
+  const evidence = evidenceFor(file, athletePath, benchmark, options.asOf);
+  const prediction = await predictFromEvidence(file, evidence, {
+    gateway,
+    model,
+    ...(options.now ? { now: options.now } : {}),
+  });
+
+  const canWrite = !options.asOfPassed && !options.dryRun;
+  const planned: PlannedPrediction = {
+    evidence,
+    prediction,
+    draft: predictionDraft(prediction),
+    gateway,
+    model,
+    canWrite,
+  };
+  if (options.dryRun) planned.holdReason = "nothing written (--dry-run)";
+  else if (options.asOfPassed) {
+    planned.holdReason = "nothing written (--as-of). Replaying the past is `ath backtest`.";
+  }
+  return planned;
+}
+
+export async function predictFromEvidence(
+  file: AthleticStandardFileT,
+  evidence: Evidence,
+  opts: { gateway: GatewayName; model: string; now?: Date },
+): Promise<PredictionT> {
+  const answer = await complete({
+    gateway: opts.gateway,
+    model: opts.model,
+    system: PREDICT_SYSTEM,
+    user: predictUserPrompt(evidence),
+  });
+  const parsed = parseModelAnswer(answer.content, evidence.benchmark.score_type);
+  return buildPrediction(file, evidence, parsed, opts.model, opts.now);
+}
+
+const PREDICT_SYSTEM = `You predict one athlete's result on a named benchmark. Return only JSON.
+
+Rules:
+- The number comes from measured signals (past results, HRV, sleep duration, resting heart rate). Self-reported notes and vendor scores may change confidence and the range. They do not move the number.
+- Cite dates and values in reasoning. Do not write vague trends.
+- Always give a range. A thin history means a wide range and low confidence, and the reasoning must say so.
+- Evidence is not a prediction. You are making the prediction.
+
+Return:
+{"value": number, "low": number, "high": number, "confidence": "low"|"moderate"|"high", "reasoning": string}
+
+value, low, and high are in the benchmark's own unit: seconds for time, reps for reps, kilograms for load. 4:35 is 275.`;
+
+function predictUserPrompt(ev: Evidence): string {
+  return [
+    `Benchmark: ${ev.benchmark.id} (${ev.benchmark.kind}, scored by ${ev.benchmark.score_type}).`,
+    `Definition: ${ev.benchmark.definition}`,
+    `As of ${ev.asOf}.`,
+    ``,
+    renderEvidence(ev),
+  ].join("\n");
+}
+
+export interface ModelAnswer {
+  value: number;
+  low: number;
+  high: number;
+  confidence: "low" | "moderate" | "high";
+  reasoning: string;
+}
+
+/** Read the model's JSON (or a fenced block) into numbers in the benchmark's unit. */
+export function parseModelAnswer(text: string, scoreType: BenchmarkT["score_type"]): ModelAnswer {
+  const raw = extractJson(text);
+  if (!raw || typeof raw !== "object") {
+    throw new PredictRefusal(
+      `the model did not return JSON I can read, so nothing was written. ` +
+        `Try again, or pick another model with --model.`,
+    );
+  }
+  const rec = raw as Record<string, unknown>;
+  const value = readAmount(rec.value, scoreType, "value");
+  let low = rec.low === undefined ? value : readAmount(rec.low, scoreType, "low");
+  let high = rec.high === undefined ? value : readAmount(rec.high, scoreType, "high");
+  if (low > high) [low, high] = [high, low];
+  const confidence = readConfidence(rec.confidence);
+  const reasoning = typeof rec.reasoning === "string" ? rec.reasoning.trim() : "";
+  if (reasoning === "") {
+    throw new PredictRefusal(`the model returned no reasoning, so nothing was written.`);
+  }
+  return { value, low, high, confidence, reasoning };
+}
+
+function extractJson(text: string): unknown {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = (fenced?.[1] ?? text).trim();
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(candidate.slice(start, end + 1));
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+}
+
+function readAmount(value: unknown, scoreType: BenchmarkT["score_type"], field: string): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const clock = /^(\d{1,3}):([0-5]\d)(?::([0-5]\d))?$/.exec(value.trim());
+    if (clock && scoreType === "time") {
+      return clock[3] === undefined
+        ? Number(clock[1]) * 60 + Number(clock[2])
+        : Number(clock[1]) * 3600 + Number(clock[2]) * 60 + Number(clock[3]);
+    }
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  throw new PredictRefusal(`the model returned no usable ${field}, so nothing was written.`);
+}
+
+function readConfidence(value: unknown): "low" | "moderate" | "high" {
+  if (value === "low" || value === "moderate" || value === "high") return value;
+  return "moderate";
+}
+
+export function buildPrediction(
+  file: AthleticStandardFileT,
+  evidence: Evidence,
+  answer: ModelAnswer,
+  model: string,
+  now: Date = new Date(),
+): PredictionT {
+  const kind = evidence.benchmark.score_type;
+  const predicted = scoreFromNative(answer.value, kind);
+  const range = { low: scoreFromNative(answer.low, kind), high: scoreFromNative(answer.high, kind) };
+  return {
+    id: predictionId(file, evidence.benchmark.id, evidence.asOf),
+    benchmark: evidence.benchmark.id,
+    created_at: localTimestamp(now),
+    predicted,
+    range,
+    confidence: answer.confidence,
+    reasoning: answer.reasoning,
+    evidence_window: { from: evidence.from, to: evidence.asOf },
+    model,
+    agent: "ath predict",
+    ath_version: ATHLETIC_STANDARD_VERSION,
+    actual: null,
+    grade: null,
+    miss_analysis: null,
+  };
+}
+
+function predictionId(file: AthleticStandardFileT, benchmark: string, day: string): string {
+  const base = `ath-p-${benchmark}-${day}`;
+  if (!file.predictions.some((p) => p.id === base)) return base;
+  let n = 2;
+  while (file.predictions.some((p) => p.id === `${base}-${n}`)) n++;
+  return `${base}-${n}`;
+}
+
+export function predictionDraft(prediction: PredictionT): LogDraft {
+  return {
+    hard: [],
+    soft: [],
+    predictions: [prediction],
+    newBenchmarks: [],
+    candidates: [],
+    chosenCandidate: -1,
+    blocks: [
+      [
+        { label: "kind", value: "prediction" },
+        { label: "benchmark", value: prediction.benchmark },
+        { label: "predicted", value: describeScore(prediction.predicted) },
+        { label: "range", value: describeRange(prediction) },
+        { label: "confidence", value: prediction.confidence },
+        { label: "by", value: `${prediction.agent} running ${prediction.model}` },
+        { label: "ath", value: prediction.ath_version ?? ATHLETIC_STANDARD_VERSION },
+      ],
+    ],
+  };
+}
+
+function describeRange(prediction: PredictionT): string {
+  if (!prediction.range) return "(none)";
+  return `${describeScore(prediction.range.low)}–${describeScore(prediction.range.high)}`;
+}
+
+export function renderPrediction(plan: PlannedPrediction): string {
+  const p = plan.prediction;
+  const out = [
+    `# ${p.benchmark} — prediction`,
+    ``,
+    `  predicted   ${describeScore(p.predicted)}`,
+    `  range       ${describeRange(p)}`,
+    `  confidence  ${p.confidence}`,
+    `  model       ${plan.model}`,
+    `  gateway     ${plan.gateway}`,
+    ``,
+    p.reasoning,
+    ``,
+    `Evidence this prediction used:`,
+    ``,
+    renderEvidence(plan.evidence),
+  ];
+  return out.join("\n");
+}
+
+export function predictionAsJson(plan: PlannedPrediction): Record<string, unknown> {
+  return {
+    kind: "prediction",
+    prediction: plan.prediction,
+    gateway: plan.gateway,
+    model: plan.model,
+    evidence: evidenceAsJson(plan.evidence),
+  };
+}
+
+/** Native value of a score, for tests and tables. */
+export function scoreAmount(score: ScoreT, scoreType: BenchmarkT["score_type"]): number | undefined {
+  return nativeValue(score, scoreType);
+}
+
+export function formatScore(score: ScoreT, scoreType: BenchmarkT["score_type"]): string {
+  const value = nativeValue(score, scoreType);
+  if (value === undefined) return describeScore(score);
+  if (scoreType === "time") return formatDuration(value);
+  if (scoreType === "reps") return `${value} reps`;
+  return `${value} kg`;
 }

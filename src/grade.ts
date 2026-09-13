@@ -152,6 +152,28 @@ export function parseActual(text: string, scoreType: BenchmarkT["score_type"]): 
   );
 }
 
+/**
+ * The same error math `ath grade` writes, used by `ath backtest` so the two
+ * cannot drift (D77).
+ */
+export function scorePrediction(
+  predicted: ScoreT,
+  actual: ScoreT,
+  scoreType: BenchmarkT["score_type"],
+  range?: { low: ScoreT; high: ScoreT },
+): GradeT {
+  const pred = native(predicted, scoreType);
+  const act = native(actual, scoreType);
+  const signed = Math.round((pred - act) * 100) / 100;
+  const absPct = Math.round((Math.abs(signed) / act) * 1000) / 10;
+  // No stated range means no hit (D61).
+  const inRange =
+    range !== undefined &&
+    act >= native(range.low, scoreType) &&
+    act <= native(range.high, scoreType);
+  return { signed_error: signed, abs_error_pct: absPct, in_range: inRange };
+}
+
 /** The score in the benchmark's native unit: seconds, reps, or kilos. */
 function native(score: ScoreT, scoreType: BenchmarkT["score_type"]): number {
   const value = nativeValue(score, scoreType);
@@ -254,19 +276,14 @@ export function planGrade(
     );
   }
 
-  const actual = native(score, benchmark.score_type);
-  const predicted = native(open.predicted, benchmark.score_type);
-  const signed = Math.round((predicted - actual) * 100) / 100;
-  const absPct = Math.round((Math.abs(signed) / actual) * 1000) / 10;
-
-  // No stated range means no hit (D61). A prediction that claimed no uncertainty
-  // cannot claim the result landed inside it, so it is graded on error alone.
-  const inRange =
-    open.range !== undefined &&
-    actual >= native(open.range.low, benchmark.score_type) &&
-    actual <= native(open.range.high, benchmark.score_type);
-
-  const severity: Severity = inRange ? "hit" : absPct < 5 ? "minor" : absPct <= 15 ? "significant" : "severe";
+  const grade = scorePrediction(open.predicted, score, benchmark.score_type, open.range);
+  const severity: Severity = grade.in_range
+    ? "hit"
+    : grade.abs_error_pct < 5
+      ? "minor"
+      : grade.abs_error_pct <= 15
+        ? "significant"
+        : "severe";
 
   return withSummary({
     benchmark,
@@ -275,9 +292,9 @@ export function planGrade(
     reusedExisting: already !== undefined,
     actualText: text,
     prediction: open,
-    grade: { signed_error: signed, abs_error_pct: absPct, in_range: inRange },
+    grade,
     severity,
-    errorText: amountIn(Math.abs(signed), benchmark.score_type),
+    errorText: amountIn(Math.abs(grade.signed_error), benchmark.score_type),
     dossier: severity === "hit" ? null : buildDossier(file, athleteFilePath, recordedAt),
   }, day, options);
 }

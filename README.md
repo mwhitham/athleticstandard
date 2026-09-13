@@ -236,11 +236,26 @@ Deliberately left out: medical records from your health provider, and findings t
 
 This is the part the file exists for. A record of training that never commits to a claim about tomorrow can't be shown to be right or wrong.
 
-**`ath predict fran`** prints everything a prediction would rest on: your previous Frans, the last 28 days day by day, your long-range averages with the count and spread behind each one, and how your past predictions on Fran turned out. It also names what's missing — days with no data, a benchmark with only one prior result, two devices that disagree.
+A prediction needs a model. Where that model lives depends on where you run.
 
-It doesn't give you a number. Turning evidence into a prediction takes a model, and there isn't one in the terminal. An agent reads this, reasons, and writes its answer back. Add `--as-of 2026-06-01` to hide everything after a past day, which is how you test whether the reasoning actually works on you. That option hides data and nothing else: the averages are worked out exactly the same way, or the test would be measuring the tool.
+**In Claude Code, Cursor, or Codex** the model is already there. You do not need a gateway key, and there is no Athletic Standard subscription. Run `ath predict fran --json` for the evidence, reason, and write the prediction with `ath log`, naming the agent and the model.
 
-Every prediction records who made it — the agent, the model it ran, and the version of `ath` that wrote it. Six months from now, a prediction nobody signed can't be weighed against the ones that were right, so `ath log` refuses one that doesn't say.
+**In a bare terminal** `ath predict fran` calls the model you chose. That needs a Vercel or OpenRouter key, saved with `ath key set` into the computer's password store — never into the athlete file. It prints the number, the range, the model, then the evidence it used, and asks once before writing. No key → it refuses. Evidence alone is never a prediction.
+
+```
+ath key set vercel
+ath models
+ath models --default openai/gpt-oss-120b
+ath predict fran --model qwen/qwen3-235b-a22b
+ath predict fran
+ath predict fran --json
+```
+
+`--json` is evidence for a harness: your previous Frans, the last 28 days day by day, long-range averages with the count and spread behind each one, past predictions on Fran, and what's missing. It is not a prediction.
+
+`--as-of 2026-06-01` hides everything after a past day and does not write. Replaying the past is `ath backtest`.
+
+Every prediction records who made it — the agent, the model it ran, and the version of `ath` that wrote it. Six months from now, a prediction nobody signed can't be weighed against the ones that were right, so `ath log` refuses one that doesn't say. When the CLI produced the number, it writes `agent: "ath predict"` and that model.
 
 **`ath grade fran --actual 4:32`** records what happened and scores the open prediction against it. Like `ath log`, it shows what it's about to write and asks once — including which of that day's recorded sessions the result belongs to, if your watch caught one. The verdict comes after.
 
@@ -248,15 +263,15 @@ Inside the range it stated is a hit, and prints one line. Anything else is a mis
 
 If no prediction was open, the result is simply recorded and that's that. If you'd already logged the result, it's graded rather than written twice.
 
+**`ath backtest`** replays every result that has an earlier result on the same benchmark. Evidence is as of the day before. It grades with the same math as `ath grade`. It does not write the athlete file. You pick models with `--model`, or pass `--all` to run every live text model that can reason, after it shows the count. The report's `summary` is the later share payload; `ath share` is not built and names that file.
+
 **One workout on one day makes one result.** Logging a second is refused, and the refusal shows you the one already there. A duplicate result is counted by every average and every trend afterwards, and nothing about the file looks wrong — which is exactly the kind of quiet mistake this format exists to prevent. If you really did do it twice, pass `--again`.
 
 ## Where this is up to
 
 Early days. Version 0.4.
 
-Working today: creating a file, loading exports from Apple Health, WHOOP, and Oura, checking and summarizing it, reading the detailed measurements back, logging what you did, and the full prediction loop — predict, log, grade, explain the miss.
-
-Coming next: measuring the agent's reasoning against a held-back history, so there's a number for how often it's right.
+Working today: creating a file, loading exports from Apple Health, WHOOP, and Oura, checking and summarizing it, reading the detailed measurements back, logging what you did, predicting in a harness or from a bare terminal, grading, explaining a miss, and backtesting models against a held-back history.
 
 ## Reference
 

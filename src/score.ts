@@ -96,6 +96,14 @@ export function nativeValue(score: ScoreT, scoreType: ScoreType): number | undef
   return score[SCORE_KEY[scoreType]];
 }
 
+/** A score object from a number in the benchmark's own unit. */
+export function scoreFromNative(value: number, scoreType: ScoreType): ScoreT {
+  const rounded = Math.round(value * 100) / 100;
+  if (scoreType === "time") return { duration_s: rounded };
+  if (scoreType === "reps") return { reps: Math.round(rounded) };
+  return { weight_kg: rounded };
+}
+
 /** An amount in the benchmark's own unit: `3s`, `12 reps`, `2.5 kg`. */
 export function amountIn(amount: number, scoreType: ScoreType): string {
   const rounded = Math.round(amount * 100) / 100;

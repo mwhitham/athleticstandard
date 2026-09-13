@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
  * ath — the Athletic Standard CLI.
- * Deterministic plumbing: no LLM calls live here. Agents (via the Skill) and
- * humans both drive the same commands.
+ *
+ * A prediction needs a model. In a harness the model is already there. In a
+ * bare terminal, predict and backtest call a gateway the person opted into.
  */
 import { Command } from "commander";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
   ATHLETIC_STANDARD_VERSION,
@@ -44,7 +45,25 @@ import {
   type Confirm,
 } from "./log.js";
 import { evidenceFor } from "./context.js";
-import { benchmarkOrRefuse, evidenceAsJson, PredictRefusal, renderEvidence } from "./predict.js";
+import {
+  benchmarkOrRefuse,
+  evidenceAsJson,
+  planPredict,
+  PredictRefusal,
+  renderPrediction,
+} from "./predict.js";
+import {
+  clearKey,
+  describeKeyStatus,
+  envGateways,
+  isGatewayName,
+  KeyRefusal,
+  savedGateways,
+  setKey,
+} from "./keyring.js";
+import { loadCatalog, renderModelList, requireOnList, writeDefaultModel } from "./models.js";
+import { planBacktest, renderReport, runBacktest, writeReport } from "./backtest.js";
+import { latestReport, shareRefusal } from "./share.js";
 import {
   analysisAsJson,
   applyGrade,
@@ -445,16 +464,107 @@ program
     );
   });
 
+const keyCmd = program
+  .command("key")
+  .helpGroup(GROUPS.setUp)
+  .description("save or show a gateway key — never stored in the athlete file")
+  .addHelpText("after", EXAMPLES.key!)
+  .option("--json", "structured output, for an agent rather than a person")
+  .action(async (opts: { json?: boolean }) => {
+    try {
+      const saved = await savedGateways();
+      const fromEnv = envGateways();
+      if (opts.json) {
+        console.log(JSON.stringify({ saved, environment: fromEnv }, null, 2));
+        return;
+      }
+      console.log(describeKeyStatus(saved, fromEnv));
+    } catch (e) {
+      if (e instanceof KeyRefusal) return fail((e as Error).message);
+      throw e;
+    }
+  });
+
+keyCmd
+  .command("set")
+  .description("save a Vercel or OpenRouter key in the OS password store")
+  .argument("<gateway>", "vercel or openrouter")
+  .action(async (gatewayArg: string) => {
+    const gateway = parseGateway(gatewayArg);
+    try {
+      await setKey(gateway);
+      console.log(`saved a ${gateway} key in the password store. The key is not printed.`);
+    } catch (e) {
+      if (e instanceof KeyRefusal) return fail((e as Error).message);
+      throw e;
+    }
+  });
+
+keyCmd
+  .command("clear")
+  .description("delete the saved gateway key from the password store")
+  .argument("[gateway]", "vercel or openrouter; leave off to clear both")
+  .action(async (gatewayArg?: string) => {
+    const gateway = gatewayArg === undefined ? undefined : parseGateway(gatewayArg);
+    try {
+      const cleared = await clearKey(gateway);
+      if (cleared.length === 0) console.log("no gateway key was saved.");
+      else console.log(`cleared ${cleared.join(" and ")} from the password store.`);
+    } catch (e) {
+      if (e instanceof KeyRefusal) return fail((e as Error).message);
+      throw e;
+    }
+  });
+
+program
+  .command("models")
+  .helpGroup(GROUPS.setUp)
+  .description("list live text models that can reason, or save your usual one")
+  .addHelpText("after", EXAMPLES.models!)
+  .option("--default <name>", "save this model next to the athlete file, for the next predict")
+  .option("--gateway <name>", "vercel or openrouter, when both keys are available")
+  .option("--file <path>", "the athlete file whose default to save")
+  .option("--json", "structured output, for an agent rather than a person")
+  .action(async (opts: { default?: string; gateway?: string; file?: string; json?: boolean }) => {
+    try {
+      const gateway = opts.gateway ? parseGateway(opts.gateway) : undefined;
+      const { gateway: used, models } = await loadCatalog(gateway);
+      if (opts.default) {
+        const path = findOrFail(opts.file);
+        const id = requireOnList(opts.default, models);
+        writeDefaultModel(path, id);
+        if (opts.json) {
+          console.log(JSON.stringify({ default: id, file: path, gateway: used }, null, 2));
+          return;
+        }
+        console.log(`saved ${id} as the default model next to the athlete file.`);
+        return;
+      }
+      if (opts.json) {
+        console.log(JSON.stringify({ gateway: used, models }, null, 2));
+        return;
+      }
+      console.log(renderModelList(models, used));
+    } catch (e) {
+      if (e instanceof PredictRefusal || e instanceof KeyRefusal) return fail((e as Error).message);
+      throw e;
+    }
+  });
+
 program
   .command("predict")
   .helpGroup(GROUPS.predict)
-  .description("print the evidence a prediction rests on — reads only, writes nothing")
+  .description("predict a benchmark — needs a model in a bare terminal; --json is evidence")
   .addHelpText("after", EXAMPLES.predict!)
   .argument("<benchmark>", "the benchmark to predict, e.g. `fran`. See them all with `ath stats`")
-  .option("--as-of <date>", "pretend it is this day, hiding everything after it, to test a prediction against what happened next (YYYY-MM-DD)")
+  .option("--model <name>", "the model for this run. See them with `ath models`")
+  .option("--gateway <name>", "vercel or openrouter, when both keys are available")
+  .option("--as-of <date>", "pretend it is this day, hiding everything after it. Does not write. Replay the past with ath backtest (YYYY-MM-DD)")
   .option("--file <path>", "read a file other than the one in this folder")
-  .option("--json", "structured output, for an agent rather than a person")
-  .action((benchmarkId: string, opts: { asOf?: string; file?: string; json?: boolean }) => {
+  .option("-y, --yes", "write the prediction without asking")
+  .option("--dry-run", "show the prediction, and write nothing")
+  .option("--json", "evidence for a harness, not a prediction")
+  .action(async (benchmarkId: string, opts: PredictCliOptions) => {
     const path = findOrFail(opts.file);
     let file: AthleticStandardFileT;
     try {
@@ -476,8 +586,151 @@ program
       throw e;
     }
 
-    const evidence = evidenceFor(file, path, benchmark, asOf);
-    console.log(opts.json ? JSON.stringify(evidenceAsJson(evidence), null, 2) : renderEvidence(evidence));
+    // --json is evidence for a harness. It is not a prediction, and it needs no key.
+    if (opts.json) {
+      const evidence = evidenceFor(file, path, benchmark, asOf);
+      console.log(JSON.stringify(evidenceAsJson(evidence), null, 2));
+      return;
+    }
+
+    let plan;
+    try {
+      plan = await planPredict(file, path, benchmark, {
+        asOf,
+        asOfPassed: opts.asOf !== undefined,
+        ...(opts.model ? { model: opts.model } : {}),
+        ...(opts.gateway ? { gateway: parseGateway(opts.gateway) } : {}),
+        ...(opts.dryRun ? { dryRun: true } : {}),
+      });
+    } catch (e) {
+      if (e instanceof PredictRefusal || e instanceof KeyRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    console.log(renderPrediction(plan));
+
+    if (!plan.canWrite) {
+      console.log(`\n${plan.holdReason}`);
+      return;
+    }
+
+    if (!opts.yes && process.stdout.isTTY) {
+      const answer = await askOnTerminal(`\nSave this?\n  [y] yes\n  [n] no\n`);
+      if (answer === null) {
+        return fail(
+          `there is no terminal to ask on, so nothing was written. ` +
+            `Pass --yes to write it without the question, or --dry-run to see what it would be.`,
+        );
+      }
+      if (!/^y(es)?$/i.test(answer)) {
+        console.log("nothing written");
+        return;
+      }
+    } else if (!opts.yes) {
+      return fail(
+        `there is no terminal to ask on, so nothing was written. ` +
+          `Pass --yes to write it without the question, or --dry-run to see what it would be.`,
+      );
+    }
+
+    applyDraft(file, plan.draft);
+    const validation = validateAthleticStandardFile(file);
+    if (!validation.valid) {
+      const first = validation.issues.filter((i) => i.severity === "error").slice(0, 5);
+      return fail(
+        `that would make the file invalid, so nothing was written:\n` +
+          first.map((i) => `  ${i.path}: ${i.message}`).join("\n"),
+      );
+    }
+    saveFile(path, file);
+    console.log(`\n${renderWritten(plan.draft)}`);
+  });
+
+program
+  .command("backtest")
+  .helpGroup(GROUPS.predict)
+  .description("replay history with one or more models — writes a report, not the athlete file")
+  .addHelpText("after", EXAMPLES.backtest!)
+  .option("-m, --model <name>", "a model to run; pass more than once to compare", collectModels, [] as string[])
+  .option("--all", "run every live text model that can reason, after showing the count")
+  .option("--gateway <name>", "vercel or openrouter, when both keys are available")
+  .option("--file <path>", "read a file other than the one in this folder")
+  .option("-y, --yes", "do not ask before a long --all run")
+  .option("--json", "structured output, for an agent rather than a person")
+  .action(async (opts: BacktestCliOptions) => {
+    const path = findOrFail(opts.file);
+    let file: AthleticStandardFileT;
+    try {
+      file = loadFile(path);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+
+    let plan;
+    try {
+      plan = await planBacktest(file, path, {
+        ...(opts.model && opts.model.length > 0 ? { models: opts.model } : {}),
+        ...(opts.all ? { all: true } : {}),
+        ...(opts.gateway ? { gateway: parseGateway(opts.gateway) } : {}),
+      });
+    } catch (e) {
+      if (e instanceof PredictRefusal || e instanceof KeyRefusal) return fail((e as Error).message);
+      throw e;
+    }
+
+    if (opts.all && !opts.yes) {
+      const calls = plan.models.length * plan.targets.length;
+      const question =
+        `This will call ${plan.models.length} models on ${plan.targets.length} ` +
+        `replayable results (${calls} calls). Continue? [y] yes  [n] no `;
+      if (!process.stdout.isTTY) {
+        return fail(
+          `this will call ${plan.models.length} models on ${plan.targets.length} results. ` +
+            `Pass --yes to run it without the question.`,
+        );
+      }
+      const answer = await askOnTerminal(question);
+      if (answer === null || !/^y(es)?$/i.test(answer ?? "")) {
+        console.log("nothing run");
+        return;
+      }
+    }
+
+    const before = loadFile(path);
+    const report = await runBacktest(file, path, plan);
+    const after = JSON.stringify(loadFile(path));
+    if (after !== JSON.stringify(before)) {
+      return fail(`backtest would have changed the athlete file, so the report was not written. This is a bug.`);
+    }
+
+    const reportPath = writeReport(path, report, new Date());
+    if (opts.json) {
+      console.log(JSON.stringify({ report: reportPath, ...report }, null, 2));
+      return;
+    }
+    console.log(renderReport(report, reportPath));
+  });
+
+program
+  .command("share")
+  .helpGroup(GROUPS.predict)
+  .description("not built yet — names the latest backtest report")
+  .addHelpText("after", EXAMPLES.share!)
+  .option("--file <path>", "look next to a file other than the one in this folder")
+  .option("--json", "structured output, for an agent rather than a person")
+  .action((opts: { file?: string; json?: boolean }) => {
+    let path: string | undefined;
+    try {
+      path = findFile(opts.file);
+    } catch {
+      path = undefined;
+    }
+    const report = path ? latestReport(path) : latestReport(join(process.cwd(), "athlete.ath.json"));
+    if (opts.json) {
+      console.log(JSON.stringify({ built: false, latest_report: report ?? null }, null, 2));
+      return;
+    }
+    console.log(shareRefusal(report));
   });
 
 program
@@ -822,6 +1075,34 @@ interface LogOptions {
   again?: boolean;
   dryRun?: boolean;
   json?: boolean;
+}
+
+interface PredictCliOptions {
+  model?: string;
+  gateway?: string;
+  asOf?: string;
+  file?: string;
+  yes?: boolean;
+  dryRun?: boolean;
+  json?: boolean;
+}
+
+interface BacktestCliOptions {
+  model?: string[];
+  all?: boolean;
+  gateway?: string;
+  file?: string;
+  yes?: boolean;
+  json?: boolean;
+}
+
+function collectModels(value: string, prev: string[]): string[] {
+  return [...prev, value];
+}
+
+function parseGateway(value: string): "vercel" | "openrouter" {
+  if (isGatewayName(value)) return value;
+  fail(`unknown gateway '${value}'. Use vercel or openrouter.`);
 }
 
 /**

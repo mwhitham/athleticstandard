@@ -43,7 +43,7 @@ export function bareGuide(cwd: string): string {
       ``,
       `  ath log slept badly, about 5 hours`,
       `  ath stats`,
-      `  ath predict fran`,
+      `  ath predict fran --json`,
       ``,
       `Every command explains itself: \`ath <command> --help\`, with examples.`,
       `The whole list: \`ath --help\`.`,
@@ -55,9 +55,9 @@ export function bareGuide(cwd: string): string {
     `ath — Athletic Standard. Working on ${name} in this folder.`,
     ``,
     `  ath stats                      what is in the file, and where it came from`,
-    `  ath log HRV 61 this morning    write something down — the only command that writes`,
+    `  ath log HRV 61 this morning    write something down`,
     `  ath import <export>            load more device data`,
-    `  ath predict fran               the evidence a prediction would rest on`,
+    `  ath predict fran               predict Fran — needs a model in a bare terminal`,
     `  ath check                      make sure the file is still sound`,
     ``,
     `Every command explains itself: \`ath <command> --help\`, with examples.`,
@@ -195,22 +195,84 @@ fixing one that went to the wrong session.`,
   predict: `
 Examples:
 
-  Everything a prediction for Fran would rest on:
+  Predict Fran. Needs a gateway key in a bare terminal:
+    $ ath models
+    $ ath predict fran --model qwen/qwen3-235b-a22b
+
+  Save a usual model, then predict without naming it:
+    $ ath models --default openai/gpt-oss-120b
     $ ath predict fran
 
-  The same, as it stood on a past day, so a prediction can be tested
-  against what actually happened next:
-    $ ath predict fran --as-of 2026-06-01
-
-  As data, for an agent:
+  Evidence for a harness, not a prediction. No key needed:
     $ ath predict fran --json
 
-This prints evidence and never a number. Turning evidence into a
-prediction takes a model and this tool has none. An agent reads this,
-reasons, and writes its answer back with \`ath log\`, naming itself and
-the model it ran — a prediction nobody signed cannot be weighed later.
+A prediction needs a model. In Claude Code, Cursor, or Codex the model
+is already there: pull evidence with --json, reason, write with
+\`ath log\`. In a bare terminal this command calls the model you chose,
+prints the number, and asks once before writing.
 
-It reads only. Nothing in the file changes.`,
+--as-of hides everything after that day and does not write. Replaying
+the past is \`ath backtest\`.`,
+
+  key: `
+Examples:
+
+  Save a Vercel or OpenRouter key in the computer's password store:
+    $ ath key set vercel
+    $ ath key set openrouter
+
+  See which gateway is saved, not the key itself:
+    $ ath key
+
+  Delete it:
+    $ ath key clear
+
+There is no Athletic Standard subscription. A key is only for calling a
+model from a bare terminal. Inside a harness you do not need one.
+
+The key never goes in the athlete file. Agents read that file. If the
+password store is missing, the command refuses. It will not write a
+plaintext file. A key already in AI_GATEWAY_API_KEY or OPENROUTER_API_KEY
+still works, for scripts.`,
+
+  models: `
+Examples:
+
+  Every live text model that can reason, including open weights:
+    $ ath models
+
+  Save your usual model next to the athlete file:
+    $ ath models --default openai/gpt-oss-120b
+
+Needs a gateway key. The list is fetched each time, so a new open-weight
+model appears without a new ath. Image, audio, and embedding models are
+out. We do not pick a favourite lab for you.`,
+
+  backtest: `
+Examples:
+
+  Replay history with the models you name:
+    $ ath backtest --model qwen/qwen3-235b-a22b --model openai/gpt-oss-120b
+
+  Every live text model that can reason, after showing the count:
+    $ ath backtest --all
+
+A prediction needs a model, so a key is required. No key → refuse. In a
+harness, daily predictions use the harness model; this command is for
+comparing models on a history you already have.
+
+A result is replayed only when an earlier result on the same benchmark
+exists. Evidence is as of the day before. The athlete file is not
+written. The report's summary is the later share payload.`,
+
+  share: `
+Examples:
+
+  Name the latest backtest report:
+    $ ath share
+
+Not built yet. The shareable part of a backtest is the summary in the
+report file this names.`,
 
   grade: `
 Examples:
@@ -292,5 +354,8 @@ Every command has examples of its own: \`ath <command> --help\`.
 The file is yours and it is local. It is one JSON document you can read,
 edit, back up, and move. Device measurements and things you reported
 yourself are kept apart on purpose, and no command mixes them.
+
+A prediction needs a model. In a harness the model is already there.
+There is no Athletic Standard subscription.
 
 Not an app, not a coach, not medical advice.`;

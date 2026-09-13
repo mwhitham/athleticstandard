@@ -48,9 +48,9 @@ Two things in that output decide what you can honestly say:
 | `ath stats` | what is in the file, per source, with coverage |
 | `ath series <quantity>` | a sample stream back, one row per day or every sample |
 | `ath check` | whether the file still obeys every rule of the format |
-| `ath log` | the only command that writes |
+| `ath log` | write a measurement, a note, a result, or a prediction |
 | `ath link <result> <session>` | attach a result to the device session it happened in |
-| `ath predict <benchmark>` | the evidence a prediction rests on |
+| `ath predict <benchmark> --json` | evidence for a prediction, not a prediction |
 | `ath grade <benchmark> --actual <score>` | score a prediction against what happened |
 
 Every one takes `--json`, which is what you should use. Every one has examples under

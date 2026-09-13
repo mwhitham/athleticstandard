@@ -35,7 +35,21 @@ describe("ath --help — written for someone who has never run this (D50)", () =
   });
 
   it("gives every command worked examples with real values", () => {
-    for (const command of ["init", "check", "import", "log", "link", "predict", "grade", "stats", "series"]) {
+    for (const command of [
+      "init",
+      "check",
+      "import",
+      "log",
+      "link",
+      "predict",
+      "grade",
+      "stats",
+      "series",
+      "key",
+      "models",
+      "backtest",
+      "share",
+    ]) {
       const res = ath([command, "--help"], emptyDir());
       expect(res.stdout, `${command} --help`).toContain("Examples:");
       expect(res.stdout, `${command} --help`).toContain(`$ ath ${command}`);
@@ -60,7 +74,7 @@ describe("ath --help — written for someone who has never run this (D50)", () =
       "one device only, for when two measured the same thing",
     );
     expect(flat(["predict", "--help"])).toContain(
-      "to test a prediction against what happened next",
+      "A prediction needs a model",
     );
   });
 });

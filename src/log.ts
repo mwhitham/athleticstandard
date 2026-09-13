@@ -1,5 +1,6 @@
 /**
- * `ath log` — the only command that writes (D55).
+ * `ath log` — the write path for a person and for a harness (D55).
+ * When the CLI itself produced a number, `ath predict` writes it (D76).
  *
  * Four kinds of record go through here: a measurement, a self-reported entry, a
  * benchmark result, and a prediction. One write path is one thing to learn, one

@@ -1,7 +1,10 @@
 # Making a prediction
 
-Run `ath predict <benchmark> --json`. It prints evidence and never a number, because
-the CLI has no model. You are the model.
+A prediction needs a model. You are the model. The harness already has one, so you
+do not need a gateway key.
+
+Run `ath predict <benchmark> --json`. It prints evidence, not a prediction. Evidence
+alone is never a prediction. Reason over it, then write the number with `ath log`.
 
 ## What comes back
 
@@ -93,6 +96,8 @@ pass, because that is a fact it knows and you would be guessing at.
 
 ## Testing yourself on the past
 
-`ath predict <benchmark> --as-of <date>` hides everything after that day. Make the
-prediction from what was knowable then, then look at what happened. That is the only
-honest way to find out whether your reasoning works on this athlete.
+`ath predict <benchmark> --as-of <date> --json` hides everything after that day. Make
+the prediction from what was knowable then, then look at what happened. That is the
+only honest way to find out whether your reasoning works on this athlete. Replaying
+a whole history is `ath backtest`, which needs a gateway key and is not the daily
+harness path.
