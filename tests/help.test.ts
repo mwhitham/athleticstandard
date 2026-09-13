@@ -47,7 +47,9 @@ describe("ath --help — written for someone who has never run this (D50)", () =
     expect(res.stdout).toContain("$ ath log slept badly, about 5 hours");
     expect(res.stdout).toContain("kind     workout result");
     expect(res.stdout).toContain("score    245 reps");
-    expect(res.stdout).toContain("Save this? [y] yes  [n] no");
+    expect(res.stdout).toContain("Save this?");
+    expect(res.stdout).toContain("[y] yes, on the 17:25–17:48 session");
+    expect(res.stdout).toContain("[n] no");
     expect(res.stdout).toContain("An agent connected to this file does more");
   });
 

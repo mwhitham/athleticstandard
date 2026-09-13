@@ -249,7 +249,9 @@ describe("ath grade — a write, so it shows its work first (D65)", () => {
     const dir = dirWith(athlete([prediction()]));
     const res = ath(["grade", "fran", "--actual", "4:52", "--date", ATTEMPT_DAY, "--dry-run"], dir);
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain("Save this? [y] yes  [n] no");
+    expect(res.stdout).toContain("Save this?");
+    expect(res.stdout).toContain("[y] yes");
+    expect(res.stdout).toContain("[n] no");
     expect(res.stdout).toContain("nothing written (--dry-run)");
     const file = read(dir);
     expect(file.hard_signals.filter((s) => s.type === "benchmark_result")).toHaveLength(0);

@@ -364,11 +364,6 @@ export function buildDraft(file: AthleticStandardFileT, input: LogInput): LogDra
     // because logging a workout nobody has done before is the ordinary case.
     const named = input.benchmark ? benchmarkId(input.benchmark) : entry.namedBenchmark;
     const id = named ?? freeDateName(file, draft, day, entry.text);
-    const why = input.benchmark
-      ? ""
-      : entry.namedBenchmark
-        ? "  (named in what you wrote)"
-        : "  (no agent connected, so named after the day)";
 
     const existing = file.benchmarks.find((b) => b.id === id) ?? draft.newBenchmarks.find((b) => b.id === id);
     if (!existing) {
@@ -394,6 +389,7 @@ export function buildDraft(file: AthleticStandardFileT, input: LogInput): LogDra
       recorded_at: recordedAt,
       source,
       result: entry.score,
+      ...(entry.segments?.length ? { segments: entry.segments } : {}),
       ...(input.scaling ?? entry.scaling ? { scaling: (input.scaling ?? entry.scaling)! } : {}),
     };
     draft.hard.push(result);
@@ -404,9 +400,9 @@ export function buildDraft(file: AthleticStandardFileT, input: LogInput): LogDra
       { label: "kind", value: "workout result" },
       { label: "date", value: `${day}${dateNote}` },
       { label: "score", value: entry.scoreText },
-      { label: "name", value: `${id}${existing ? "" : why || "  (new benchmark)"}` },
+      { label: "name", value: id },
       sessionBlock(draft, confirm),
-      { label: "workout", value: "saved word for word" },
+      { label: "workout", value: entry.text },
     ];
     draft.blocks.push(block);
   }
@@ -419,16 +415,16 @@ export function sessionBlock(draft: LogDraft, confirm: Confirm): { label: string
   const { candidates, chosenCandidate } = draft;
   if (candidates.length === 0) {
     return {
-      label: "session",
-      value: "no device session that day yet — link it after your next import",
+      label: "attach",
+      value: "no device recording that day yet — link it after your next import",
     };
   }
-  if (chosenCandidate >= 0) return { label: "session", value: candidates[chosenCandidate]!.label };
+  if (chosenCandidate >= 0) return { label: "attach", value: candidates[chosenCandidate]!.label };
   return {
-    label: "session",
+    label: "attach",
     value:
       confirm === "assume"
-        ? `${candidates.length} sessions that day — not linked, because picking one is a guess. ` +
+        ? `${candidates.length} recordings that day — not linked, because picking one is a guess. ` +
           `Attach it with \`ath link\``
         : `${candidates[0]!.label} — not linked, because there is nobody to confirm it with`,
   };
@@ -572,7 +568,7 @@ function buildFromJson(
         { label: "name", value: signal.benchmark },
         signal.session
           ? {
-              label: "session",
+              label: "attach",
               value: `${signal.session.start.slice(11, 16)} on ${signal.session.source}`,
             }
           : sessionBlock(draft, confirm),
@@ -614,23 +610,47 @@ export function renderDraft(draft: LogDraft): string {
   const width = Math.max(...draft.blocks.flat().map((r) => r.label.length), 7);
   draft.blocks.forEach((block, i) => {
     if (i > 0) lines.push("");
-    for (const row of block) lines.push(`  ${row.label.padEnd(width)}  ${row.value}`);
+    for (const row of block) {
+      const parts = row.value.split("\n");
+      lines.push(`  ${row.label.padEnd(width)}  ${parts[0]}`);
+      for (const extra of parts.slice(1)) lines.push(`  ${"".padEnd(width)}  ${extra}`);
+    }
   });
   return lines.join("\n");
+}
+
+/** Start–end as it appears on a question key: `17:45–18:13`. */
+function clockRange(c: SessionCandidate): string {
+  return `${c.start.slice(11, 16)}–${c.end.slice(11, 16)}`;
+}
+
+/**
+ * How another recording is named on the extra key.
+ *
+ * Start and end always. The source only when two recordings share a start clock,
+ * so the keys stay distinct without repeating the source on every line (D74).
+ */
+function extraSessionLabel(c: SessionCandidate, all: SessionCandidate[]): string {
+  const range = `${clockRange(c)} session`;
+  const start = c.start.slice(11, 16);
+  const clash = all.some((other) => other !== c && other.start.slice(11, 16) === start);
+  return clash ? `${range} on ${c.source}` : range;
 }
 
 /**
  * The one question, with the extra keys the session match needs.
  *
  * A second candidate becomes a key on this question rather than a second question,
- * because two questions in a row is how a person stops reading them (D58).
+ * because two questions in a row is how a person stops reading them (D53). Each
+ * choice is on its own line so the labels stay readable (D74).
  */
 export function renderQuestion(draft: LogDraft): string {
-  const extra = draft.candidates
-    .slice(1, 4)
-    .map((c, i) => `  [${i + 2}] use the ${c.start.slice(11, 16)} one instead`)
-    .join("");
-  return `Save this? [y] yes  [n] no${extra}`;
+  const chosen = draft.chosenCandidate >= 0 ? draft.candidates[draft.chosenCandidate] : undefined;
+  const lines = ["Save this?", chosen ? `  [y] yes, on the ${clockRange(chosen)} session` : "  [y] yes", "  [n] no"];
+  for (const [i, c] of draft.candidates.slice(1, 4).entries()) {
+    lines.push(`  [${i + 2}] the ${extraSessionLabel(c, draft.candidates)} instead`);
+  }
+  return lines.join("\n");
 }
 
 /** Apply the draft to the file. The caller validates and saves. */

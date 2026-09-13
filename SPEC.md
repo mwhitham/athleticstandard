@@ -282,10 +282,16 @@ A scored attempt at a defined benchmark. A result is measured fact even when han
   "recorded_at": "2026-08-09T17:30:00Z", "source": "manual-1",
   "result": { "duration_s": 281 }, "scaling": "rx",
   "session": { "source": "whoop-1", "start": "2026-08-09T17:25:00Z" },
+  "segments": [
+    { "label": "1", "duration_s": 106 },
+    { "label": "2", "duration_s": 85 }
+  ],
   "note": "unbroken thrusters first two rounds" }
 ```
 
 `result` is a **score object**: at least one of `duration_s` (for time-scored benchmarks), `reps`, `weight_kg`. The key matching the benchmark's `score_type` is required (validated); extra keys are allowed. `scaling` is `rx` | `scaled`, optional.
+
+**`segments`** is the same shape as on a workout session: ordered, labeled sub-efforts. On a result they are hand-logged — round times, splits the athlete wrote down. They are not copied from the device session. When the result is a list of round times, `result.duration_s` is their sum and the summary shows the list.
 
 **`session`** names the `workout_session` this result was recorded during, by that session's `source` and `start`. Those two fields already identify a session uniquely — they are the key the importers reconcile duplicates on — so the reference survives a re-import unchanged and no importer has to invent an id. The validator requires it to resolve to a session that exists.
 

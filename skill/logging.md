@@ -11,7 +11,7 @@ Three shapes, and they do not overlap, so nothing is guessed:
 - A `type` from the self-reported list is a self-reported entry.
 - `predicted` and `confidence`, with no `type`, is a prediction.
 
-Pass one object, or an array of them for one sentence that produced several records.
+Pass one object, or an array of them when you have several records to write at once. Typed text is always one record per command.
 
 ```
 ath log '{"type":"hrv_rmssd","value":61,"unit":"ms","recorded_at":"2026-09-07T06:10:00-07:00"}'

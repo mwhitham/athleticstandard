@@ -107,22 +107,33 @@ ath log
 ath log 2026-09-04
 ```
 
+**Round times at the end.** Put them after `//`, or after `Times:`. Each time is kept, so they can be read later:
+
+```
+ath log e5m x 6: 16 echo bike cals, 12 t2b, 8 deadlift at 225 // 1:46, 1:25, 1:25, 1:38, 2:31, 2:58
+```
+
 Nothing is written until you say so. First you see exactly what it understood:
 
 ```
   kind     workout result
   date     2026-09-07  (today)
   score    245 reps
-  name     2026-09-07  (no agent connected, so named after the day)
-  session  17:25 to 17:48 on whoop-1
-  workout  saved word for word
+  name     2026-09-07
+  attach   17:25 to 17:48 on whoop-1
+  workout  7 ROUNDS FOR REPS
+           40s ALT DB SNATCH 55lbs / 20s REST
+           40s BOX STEP UPS 20" / 20s REST
+           245 TOTAL REPS
 
-Save this? [y] yes  [n] no
+Save this?
+  [y] yes, on the 17:25–17:48 session
+  [n] no
 ```
 
 The first line is the one worth reading. It says which side of the wall the entry lands on — measured, or something you reported — and that's the decision you can't spot by eye later.
 
-That `session` line is the tool noticing you have a recorded workout at the same time as the result, and offering to attach the two. Usually your watch hasn't synced yet, so there's nothing to attach; the next `ath import` offers the match once the data arrives, and `ath link` does it by hand.
+That `attach` line is the tool noticing you have a recorded workout at the same time as the result, and offering to attach the two. Usually your watch hasn't synced yet, so there's nothing to attach; the next `ath import` offers the match once the data arrives, and `ath link` does it by hand.
 
 ### What it reads on its own, and what changes with an agent
 

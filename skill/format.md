@@ -61,7 +61,8 @@ aggregates, and optional segments for splits or stations.
 **`benchmark_result`** — a score on a benchmark. Optionally names the
 `workout_session` it happened in, by that session's source and start time. Most
 results have no session, because device data usually arrives days later. That is
-normal, not an error.
+normal, not an error. Optional `segments` on the result are hand-logged round
+times or splits, not copied from the device session.
 
 **`series_ref`** — a dense sample stream that lives in files beside the document
 rather than in it. A night of beat intervals is thousands of samples; keeping them

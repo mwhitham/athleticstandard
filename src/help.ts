@@ -130,6 +130,9 @@ Examples:
   A one-line workout:
     $ ath log Fran in 4:41 rx
 
+  Round times at the end. \`//\` marks the result; \`Times:\` does the same:
+    $ ath log e5m x 6: 16 echo bike cals, 12 t2b, 8 deadlift at 225 // 1:46, 1:25
+
   A workout of several lines. Run \`ath log\` on its own, paste it, and
   press Ctrl-D. A box height writes as 20" and a shell would break on it,
   which is why it is pasted rather than quoted:
@@ -145,19 +148,25 @@ Examples:
       kind     workout result
       date     2026-09-07  (today)
       score    245 reps
-      name     2026-09-07  (no agent connected, so named after the day)
-      session  17:25 to 17:48 on whoop-1
-      workout  saved word for word
+      name     2026-09-07
+      attach   17:25 to 17:48 on whoop-1
+      workout  7 ROUNDS FOR REPS
+               40s ALT DB SNATCH 55lbs / 20s REST
+               40s BOX STEP UPS 20" / 20s REST
+               245 TOTAL REPS
 
-    Save this? [y] yes  [n] no
+    Save this?
+      [y] yes, on the 17:25–17:48 session
+      [n] no
 
   A workout from an earlier day. The date goes first, as year-month-day:
     $ ath log 2026-09-04
 
 What this reads on its own: measurement names it knows, numbers, units,
-ratings like 4/5, clock times, and rep totals. Everything else becomes a
-note with your words kept exactly. It never turns a sentence into a
-measurement on a guess — the worst it can do is file something as a note.
+ratings like 4/5, clock times, a list of round times, and rep totals.
+Everything else becomes a note with your words kept exactly. It never
+turns a sentence into a measurement on a guess — the worst it can do is
+file something as a note. One command writes one record.
 
 One workout on one day makes one result. Logging a second is refused,
 because a duplicate is counted by every average afterwards and nothing

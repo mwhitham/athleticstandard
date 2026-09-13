@@ -118,13 +118,13 @@ describe("ath log — telling the four kinds apart (D57)", () => {
     expect(file.predictions).toHaveLength(0);
   });
 
-  it("writes three records from one sentence, under one question", () => {
+  it("writes one record from one command, commas kept (D72)", () => {
     const { res, file } = log(["Did", "Fran", "in", "4:41,", "felt", "awful,", "slept", "about", "5", "hours"]);
     expect(results(file)).toHaveLength(1);
     expect(results(file)[0]!.benchmark).toBe("fran");
-    expect(file.soft_signals.map((s) => s.type)).toEqual(["mood", "sleep_quality"]);
-    // One summary with three blocks, and one question at the end of it.
-    expect(res.stdout.match(/kind /g)).toHaveLength(3);
+    expect(file.soft_signals).toHaveLength(0);
+    expect(res.stdout.match(/kind /g)).toHaveLength(1);
+    expect(res.stdout).toContain("Did Fran in 4:41, felt awful, slept about 5 hours");
   });
 
   it("keeps a comma inside one thought as one entry", () => {
@@ -277,9 +277,10 @@ describe("ath log — the workout result", () => {
     expect(results(file)[0]!.benchmark).toBe(TODAY);
   });
 
-  it("names it after the day when nothing else names it, and says why", () => {
+  it("names it after the day when nothing else names it", () => {
     const { res } = log([], "10 rounds of 10 burpees\n100 total reps\n");
-    expect(res.stdout).toContain("no agent connected, so named after the day");
+    expect(res.stdout).toMatch(new RegExp(`name\\s+${TODAY}`));
+    expect(res.stdout).not.toContain("no agent connected");
   });
 
   it("takes the name an agent supplies", () => {
@@ -287,10 +288,27 @@ describe("ath log — the workout result", () => {
     expect(file.benchmarks.some((b) => b.id === "fran-with-dumbbells")).toBe(true);
   });
 
-  it("keeps the workout text word for word as the definition", () => {
+  it("keeps the workout text word for word as the definition, and shows it", () => {
     const text = '7 ROUNDS FOR REPS\n40s BOX STEP UPS 20"\n245 TOTAL REPS';
-    const { file } = log([], `${text}\n`);
+    const { res, file } = log([], `${text}\n`);
     expect(file.benchmarks.find((b) => b.id === TODAY)!.definition).toBe(text);
+    expect(res.stdout).toContain("7 ROUNDS FOR REPS");
+    expect(res.stdout).not.toContain("saved word for word");
+  });
+
+  it("logs a one-line movement list as one workout with its round times (D72, D73)", () => {
+    const line =
+      "e5m x 6: 16 echo bike cals, 12 t2b, 8 deadlift at 225. Times: 1: 1:46, 2: 1:25, 3: 1:25, 4: 1:38, 5: 2:31, 6: 2:58";
+    const { res, file } = log(["--date", "2026-09-11", ...line.split(" ")]);
+    expect(res.code).toBe(0);
+    expect(results(file)).toHaveLength(1);
+    expect(file.soft_signals).toHaveLength(0);
+    expect(res.stdout).toContain("1:46, 1:25, 1:25, 1:38, 2:31, 2:58");
+    expect(res.stdout).toContain(line);
+    const result = results(file)[0]!;
+    expect(result.segments).toHaveLength(6);
+    expect(result.result.duration_s).toBe(106 + 85 + 85 + 98 + 151 + 178);
+    expect(file.benchmarks.find((b) => b.id === "2026-09-11")!.definition).toBe(line);
   });
 
   it("gives two different workouts on one day two names", () => {
@@ -328,6 +346,23 @@ describe("readScore", () => {
     expect(readScore("marathon 3:12:40")!.score).toEqual({ duration_s: 11560 });
   });
 
+  it("reads a list of round times as the result, not the last clock (D73)", () => {
+    const listed = readScore("e5m x 6: 16 echo bike cals // 1:46, 1:25, 1:25, 1:38, 2:31, 2:58");
+    expect(listed).toMatchObject({
+      scoreText: "1:46, 1:25, 1:25, 1:38, 2:31, 2:58",
+      scoreType: "time",
+    });
+    expect(listed!.score.duration_s).toBe(106 + 85 + 85 + 98 + 151 + 178);
+    expect(listed!.segments).toHaveLength(6);
+    expect(listed!.segments![0]).toEqual({ label: "1", duration_s: 106 });
+
+    const numbered = readScore(
+      "e5m x 6: 16 echo bike cals, 12 t2b, 8 deadlift at 225. Times: 1: 1:46, 2: 1:25, 3: 1:25, 4: 1:38, 5: 2:31, 6: 2:58",
+    );
+    expect(numbered!.scoreText).toBe("1:46, 1:25, 1:25, 1:38, 2:31, 2:58");
+    expect(numbered!.segments!.map((s) => s.label)).toEqual(["1", "2", "3", "4", "5", "6"]);
+  });
+
   it("reads a load at the end, converting pounds", () => {
     expect(readScore("back squat 1RM 315 lb")!.score).toEqual({ weight_kg: 142.88 });
   });
@@ -337,26 +372,29 @@ describe("readScore", () => {
   });
 });
 
-describe("ath log — session matching at log time (D53)", () => {
+describe("ath log — session matching at log time (D53, D74)", () => {
   it("offers the covering session as a line in the same summary", () => {
     const dir = newAthlete();
     withSession(dir, `${TODAY}T17:25:00Z`, `${TODAY}T17:48:00Z`);
     const res = ath(["log", "--yes"], dir, "3 rounds for time\n21 thrusters\n4:41\n");
-    expect(res.stdout).toContain("session  17:25 to 17:48 on whoop-1");
+    expect(res.stdout).toContain("attach   17:25 to 17:48 on whoop-1");
     expect(results(read(dir))[0]!.session).toEqual({ source: "whoop-1", start: `${TODAY}T17:25:00Z` });
   });
 
-  it("offers a second candidate as an extra key rather than a second question", () => {
+  it("offers a second recording as an extra key on its own line", () => {
     const dir = newAthlete();
     withSession(dir, `${TODAY}T17:25:00Z`, `${TODAY}T17:48:00Z`);
     withSession(dir, `${TODAY}T19:02:00Z`, `${TODAY}T19:40:00Z`);
     const res = ath(["log", "--dry-run"], dir, "3 rounds for time\n21 thrusters\n4:41\n");
-    expect(res.stdout).toMatch(/\[y\] yes {2}\[n\] no {2}\[2\] use the \d\d:\d\d one instead/);
+    expect(res.stdout).toContain("Save this?");
+    expect(res.stdout).toMatch(/\[y\] yes, on the \d\d:\d\d–\d\d:\d\d session/);
+    expect(res.stdout).toContain("[n] no");
+    expect(res.stdout).toMatch(/\[2\] the \d\d:\d\d–\d\d:\d\d session instead/);
   });
 
-  it("says plainly when there is no session yet, and how to link it later", () => {
+  it("says plainly when there is no recording yet, and how to link it later", () => {
     const { res } = log([], "3 rounds for time\n21 thrusters\n4:41\n");
-    expect(res.stdout).toContain("no device session that day yet");
+    expect(res.stdout).toContain("no device recording that day yet");
     expect(res.stdout).toContain("ath link");
   });
 

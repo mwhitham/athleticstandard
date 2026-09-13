@@ -1843,6 +1843,35 @@
                 ],
                 "additionalProperties": false
               },
+              "segments": {
+                "description": "Ordered sub-efforts on this result: round times, splits. Hand-logged, not copied from the device session",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "description": "e.g. 'run 1km', 'ski erg', 'sled push'"
+                    },
+                    "duration_s": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "distance_m": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "avg_hr_bpm": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "label"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "note": {
                 "type": "string"
               }

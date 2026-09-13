@@ -25,7 +25,9 @@ describe("the README shows ath log doing every kind of entry (D60)", () => {
 
   it("shows the summary and the one question", () => {
     expect(readme).toContain("kind     workout result");
-    expect(readme).toContain("Save this? [y] yes  [n] no");
+    expect(readme).toContain("Save this?");
+    expect(readme).toContain("[y] yes, on the 17:25–17:48 session");
+    expect(readme).toContain("[n] no");
   });
 
   it("sets a bare terminal against an agent, side by side", () => {

@@ -15,7 +15,7 @@
  * An agent does not come through here at all. It passes structured JSON, whose three
  * shapes do not overlap, so there is nothing to guess (D57).
  */
-import { POINT_MEASUREMENT_UNITS, type ScoreT, type SoftSignalTypeT } from "./schema.js";
+import { POINT_MEASUREMENT_UNITS, type ScoreT, type SoftSignalTypeT, type WorkoutSegmentT } from "./schema.js";
 import {
   CLOCK_AT_END,
   CLOCK_INTRODUCED,
@@ -36,11 +36,13 @@ export { formatDuration } from "./score.js";
 export interface WorkoutEntry {
   kind: "workout result";
   score: ScoreT;
-  /** How the score is stated back to the reader: "245 reps", "4:41". */
+  /** How the score is stated back to the reader: "245 reps", "4:41", or a list of rounds. */
   scoreText: string;
   scoreType: "time" | "reps" | "load";
   /** The text, kept word for word, which becomes the benchmark's definition. */
   text: string;
+  /** Round times or splits, when the result was a list rather than one finish. */
+  segments?: WorkoutSegmentT[];
   /** An existing benchmark the text named, when it named one. */
   namedBenchmark?: string;
   scaling?: "rx" | "scaled";
@@ -206,6 +208,93 @@ interface ReadScore {
   score: ScoreT;
   scoreText: string;
   scoreType: ScoreType;
+  segments?: WorkoutSegmentT[];
+}
+
+/**
+ * Pull the result off the end of the text (D72).
+ *
+ * `//` is the marker that is not quotes and is not `/`. `Times:` is the word
+ * someone already writes before a list of rounds. Everything after either is the
+ * result. The write-up stays in `body`.
+ */
+function takeResultSection(text: string): { body: string; result: string } {
+  const slash = /(?:^|\s)\/\/\s+/.exec(text);
+  if (slash && slash.index !== undefined) {
+    return { body: text.slice(0, slash.index).trim(), result: text.slice(slash.index + slash[0].length).trim() };
+  }
+  const times = /\btimes:\s+/i.exec(text);
+  if (times && times.index !== undefined) {
+    return { body: text.slice(0, times.index).trim(), result: text.slice(times.index + times[0].length).trim() };
+  }
+  return { body: text, result: text };
+}
+
+/** One clock, optionally numbered as `1: 1:46`. */
+const CLOCK_ITEM =
+  /^(?:(\d+)\s*:\s+)?(\d{1,3}):([0-5]\d)(?::([0-5]\d))?$/;
+
+function clockItem(part: string): { label?: string; duration_s: number } | null {
+  const m = CLOCK_ITEM.exec(part.trim());
+  if (!m) return null;
+  const duration_s =
+    m[4] === undefined ? Number(m[2]) * 60 + Number(m[3]) : Number(m[2]) * 3600 + Number(m[3]) * 60 + Number(m[4]);
+  if (duration_s <= 0) return null;
+  return { ...(m[1] ? { label: m[1] } : {}), duration_s };
+}
+
+/**
+ * Several clocks written as a list: `1:46, 1:25` or `1: 1:46, 2: 1:25`.
+ *
+ * Returns null when the section is not a clean list of two or more clocks, so a
+ * single finish time still goes through the ordinary clock grammar.
+ */
+function readClockList(section: string): WorkoutSegmentT[] | null {
+  const parts = section
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+  if (parts.length < 2) return null;
+  const items: WorkoutSegmentT[] = [];
+  for (const [i, part] of parts.entries()) {
+    const item = clockItem(part);
+    if (!item) return null;
+    items.push({ label: item.label ?? String(i + 1), duration_s: item.duration_s });
+  }
+  return items;
+}
+
+/** Clocks sitting at the end of a sentence, comma-separated, with no marker. */
+function trailingClockList(text: string): WorkoutSegmentT[] | null {
+  const parts = text
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+  const collected: { label?: string; duration_s: number }[] = [];
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const item = clockItem(parts[i]!);
+    if (!item) break;
+    collected.unshift(item);
+  }
+  if (collected.length < 2) return null;
+  return collected.map((item, i) => ({
+    label: item.label ?? String(i + 1),
+    duration_s: item.duration_s,
+  }));
+}
+
+function scoreFromSegments(segments: WorkoutSegmentT[]): ReadScore {
+  const duration_s = segments.reduce((sum, s) => sum + (s.duration_s ?? 0), 0);
+  return {
+    score: { duration_s },
+    scoreText: segments.map((s) => formatDuration(s.duration_s ?? 0)).join(", "),
+    scoreType: "time",
+    segments,
+  };
 }
 
 /**
@@ -213,23 +302,29 @@ interface ReadScore {
  *
  * Ordered by how explicitly each form states a result. A workout is full of numbers
  * — loads, distances, intervals — so the ones read are the ones written the way a
- * result is written: a labelled total, or a clock at the end.
+ * result is written: a labelled total, a list of round times, or a clock at the end.
  *
  * Anything with no such form has no score, and a benchmark result without a score is
  * not written at all. That is the whole guard: the text falls through to a note
  * instead of becoming a measured record with a number picked out of the middle of it.
  */
 export function readScore(text: string): ReadScore | null {
-  const flat = text.replace(/\s+/g, " ").trim();
+  const { result } = takeResultSection(text);
+  const marked = result !== text;
+  const section = (marked ? result : text).replace(/\s+/g, " ").trim();
 
-  const totalReps = /(\d{1,5})\s*(?:total\s+)?reps?\b\s*$/i.exec(flat) ?? /\btotal\s*(?:reps)?[: ]\s*(\d{1,5})\b/i.exec(flat);
+  const listed = marked ? readClockList(section) : trailingClockList(section);
+  if (listed) return scoreFromSegments(listed);
+
+  const totalReps =
+    /(\d{1,5})\s*(?:total\s+)?reps?\b\s*$/i.exec(section) ?? /\btotal\s*(?:reps)?[: ]\s*(\d{1,5})\b/i.exec(section);
   if (totalReps) {
     const reps = Number(totalReps[1]);
     if (reps > 0) return { score: { reps }, scoreText: `${reps} reps`, scoreType: "reps" };
   }
 
   // A clock at the end, or one introduced by "in" or "time".
-  const clock = CLOCK_AT_END.exec(flat) ?? CLOCK_INTRODUCED.exec(flat);
+  const clock = CLOCK_AT_END.exec(section) ?? CLOCK_INTRODUCED.exec(section);
   if (clock) {
     const duration_s = secondsFromClock(clock);
     if (duration_s > 0) {
@@ -237,7 +332,7 @@ export function readScore(text: string): ReadScore | null {
     }
   }
 
-  const load = LOAD_AT_END.exec(flat);
+  const load = LOAD_AT_END.exec(section);
   if (load) {
     const weight_kg = kilosFromLoad(load);
     if (weight_kg > 0) {
@@ -426,6 +521,7 @@ function classify(clause: string, context: ParseContext, multiline: boolean): En
         scoreText: score.scoreText,
         scoreType: score.scoreType,
         text: clause,
+        ...(score.segments ? { segments: score.segments } : {}),
         ...(named ? { namedBenchmark: named } : {}),
         ...(scaling ? { scaling } : {}),
       },
@@ -438,30 +534,11 @@ function classify(clause: string, context: ParseContext, multiline: boolean): En
 /**
  * Everything one entry of text becomes.
  *
- * A comma splits the text only when one of the parts is a measurement or a result.
- * `slept badly, about 5 hours` is one thought and stays one entry; `Did Fran in 4:41,
- * felt awful, slept about 5 hours` is a result and two feelings, and becomes three
- * records under the one question.
- *
- * Several lines are never split, because several lines is what a pasted workout is.
+ * One invocation is one record (D72). Commas stay inside the text. Several lines
+ * are still one entry, because several lines is what a pasted workout is.
  */
 export function parseEntry(text: string, context: ParseContext): Entry[] {
   const trimmed = text.trim();
   if (trimmed === "") return [];
-
-  const multiline = /\n/.test(trimmed);
-  if (multiline) return classify(trimmed, context, true);
-
-  const clauses = trimmed
-    .split(/[,;]/)
-    .map((c) => c.trim())
-    .filter((c) => c !== "");
-  if (clauses.length < 2) return classify(trimmed, context, false);
-
-  const split = clauses.map((clause) => classify(clause, context, false));
-  const hardParts = split.filter((entries) =>
-    entries.some((e) => e.kind === "measurement" || e.kind === "workout result"),
-  );
-  if (hardParts.length === 0) return classify(trimmed, context, false);
-  return split.flat();
+  return classify(trimmed, context, /\n/.test(trimmed));
 }
