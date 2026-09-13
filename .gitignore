@@ -3,7 +3,27 @@ dist/
 *.log
 .DS_Store
 
-# Personal athlete files created by `ath init` in the repo root.
-# The demo fixture in examples/ is intentionally tracked, so this is root-only.
-/*.ath.json
+# Real health exports and local validation data never belong in Git.
+.private-data/
+private-validation/
+validation-data/
+*.ath.json
+*.fit
+*.gpx
+*.xml
+*.zip
+*.csv
+
+# These fixtures are approved synthetic data. Keep each exception explicit.
+!examples/demo-athlete/athlete.ath.json
+!tests/fixtures/exports/apple/export.xml
+!tests/fixtures/exports/apple/electrocardiograms/ecg_2026-08-07.csv
+!tests/fixtures/exports/apple/electrocardiograms/ecg_2026-08-09.csv
+!tests/fixtures/exports/apple/workout-routes/route_2026-08-09_7.00pm.gpx
+!tests/fixtures/exports/oura/oura_daily_readiness.csv
+!tests/fixtures/exports/oura/oura_sleep.csv
+!tests/fixtures/exports/whoop/journal_entries.csv
+!tests/fixtures/exports/whoop/physiological_cycles.csv
+!tests/fixtures/exports/whoop/sleeps.csv
+!tests/fixtures/exports/whoop/workouts.csv
 

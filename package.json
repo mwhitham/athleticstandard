@@ -51,6 +51,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "check:public-data": "tsx scripts/check-public-data.ts",
     "prepublishOnly": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -21,13 +21,16 @@ Read these before making decisions — they are the project's memory and outrank
 - **Schemas are the source of truth.** After changing `src/schema.ts`, run `pnpm generate:json-schema` and `pnpm generate:fixture` and commit the regenerated outputs.
 - **Naming:** "Athletic Standard" in prose; `athleticstandard` for the npm package, file extension, and version field; `ath` is the CLI command; `AthleticStandard` in code identifiers.
 - **Keep the repo impersonal:** no personal objectives, audience/positioning framing, or individual names in committed content.
+- **Never commit real health data.** Real exports stay outside Git, including private repositories. Public tests use only the synthetic files listed in `scripts/check-public-data.ts`.
+- **Sanitize validation evidence.** A public decision may state the rule and a rounded technical result. It must omit exact workout dates, routes, birth dates, travel clues, device inventories, and sample values from real exports.
+- **Build synthetic regressions.** Reproduce a real-data bug with the smallest invented case before committing it. Do not copy identifying values into a test.
 - **Prose (D24):** write the rule, then the reason. Short sentences. Ordinary words. No slogans, no metaphor used as if it were the rule, no antithesis wordplay (*an* vs *the*, "X is the pipe, Y is the document", "never a data upgrade"). Don't use "vibes", "bet", "scoreboard", "on-ramp", or "doctrine" as stand-ins for the actual idea. Named principles are allowed when they name a real rule ("two-tier wall", "the file is the database", "not an app, not a coach, not medical advice") — after the name, state the rule in ordinary words in the same paragraph.
 - **Chat:** talking to a person follows [`.cursor/rules/plain-english.mdc`](.cursor/rules/plain-english.mdc). One idea per sentence, the point before the reason, no shop talk, one numbered question at a time.
 - **SDNN and RMSSD are different statistics** (`hrv_sdnn` vs `hrv_rmssd`); never combine them in one baseline.
 
 ## Verification
 
-`pnpm typecheck && pnpm test && pnpm build` must pass before any commit. The fixture (`examples/demo-athlete/`) is deterministic — regenerate, don't hand-edit.
+`pnpm check:public-data && pnpm typecheck && pnpm test && pnpm build` must pass before any commit. The fixture (`examples/demo-athlete/`) is deterministic — regenerate, don't hand-edit.
 
 ## Workflow
 
